@@ -434,6 +434,13 @@ class SerialManager:
                     qeng_resp = self._send_at_cmd_raw('AT+QENG="servingcell"')
                     self._parse_qeng_serving(qeng_resp)
 
+                    qeng_neigh_resp = self._send_at_cmd_raw('AT+QENG="neighbourcell"')
+                    self._parse_qeng_neighbour(qeng_neigh_resp)
+
+                    if not self.state["neighbour_cells"]:
+                        nue_resp = self._send_at_cmd_raw('AT+NUESTATS="CELL"')
+                        self._parse_nuestats_cell(nue_resp)
+
                     cops_resp = self._send_at_cmd_raw("AT+COPS?")
                     self._parse_cops_query(cops_resp)
 
@@ -596,6 +603,38 @@ class SerialManager:
                 "tac": tac_hex,
                 "tac_dec": tac_dec
             })
+
+    def _parse_qeng_neighbour(self, resp: str):
+        matches = re.findall(r'\+QENG:\s*"neighbourcell",(?:"neighbour",)?"?([^",\s]+)"?,?(\d+),(\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
+        if matches:
+            neighbours = []
+            for m in matches:
+                rat, earfcn, pci, rsrp, rsrq, rssi = m
+                neighbours.append({
+                    "rat": rat,
+                    "earfcn": int(earfcn),
+                    "pci": int(pci),
+                    "rsrp": int(rsrp),
+                    "rsrq": int(rsrq),
+                    "rssi": int(rssi)
+                })
+            self.state["neighbour_cells"] = neighbours
+
+    def _parse_nuestats_cell(self, resp: str):
+        matches = re.findall(r'\+NUESTATS:\s*"CELL",\s*(\d+),\s*(\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)', resp)
+        if matches:
+            cells = []
+            for m in matches:
+                earfcn, pci, rsrp, rsrq, snr = m
+                cells.append({
+                    "rat": "NB-IoT",
+                    "earfcn": int(earfcn),
+                    "pci": int(pci),
+                    "rsrp": int(rsrp),
+                    "rsrq": int(rsrq),
+                    "sinr": int(snr)
+                })
+            self.state["neighbour_cells"] = cells
 
     def _parse_cops_query(self, resp: str):
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)
