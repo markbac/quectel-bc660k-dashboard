@@ -18,7 +18,7 @@ LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 class SerialManager:
     VERSION = __version__
 
-    def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 60):
+    def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 0):
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
         self.baudrate: int = 115200
@@ -277,8 +277,6 @@ class SerialManager:
                 self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
                 self.poll_thread.start()
 
-                self.trigger_async_cops_scan()
-
                 self._notify("state", self.state)
                 return True
             except Exception as e:
@@ -430,6 +428,9 @@ class SerialManager:
                     csq_resp = self._send_at_cmd_raw("AT+CSQ")
                     self._parse_csq(csq_resp)
 
+                    cesq_resp = self._send_at_cmd_raw("AT+CESQ")
+                    self._parse_cesq(cesq_resp)
+
                     qeng_resp = self._send_at_cmd_raw('AT+QENG="servingcell"')
                     self._parse_qeng_serving(qeng_resp)
 
@@ -512,6 +513,17 @@ class SerialManager:
                 self.state["signal"]["csq"] = csq
                 self.state["signal"]["rssi"] = rssi
                 self.state["signal"]["ber"] = ber
+
+    def _parse_cesq(self, resp: str):
+        match = re.search(r"\+CESQ:\s*(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)", resp)
+        if match:
+            rxlev, ber, rscp, ecno, rsrq, rsrp = [int(x) for x in match.groups()]
+            if rsrp not in (255, 99):
+                rsrp_dbm = -141 + rsrp
+                self.state["signal"]["rsrp"] = rsrp_dbm
+            if rsrq not in (255, 99):
+                rsrq_db = -20 + (rsrq * 0.5)
+                self.state["signal"]["rsrq"] = round(rsrq_db, 1)
 
     def _parse_iccid(self, resp: str):
         match = re.search(r"(?:89\d{16,18}\w?)", resp)
