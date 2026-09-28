@@ -280,6 +280,28 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Web Exit / Server Shutdown Trigger
+    const exitBtn = document.getElementById("exitBtn");
+    if (exitBtn) {
+        exitBtn.addEventListener("click", async () => {
+            if (confirm("Are you sure you want to stop the dashboard server and close serial connections?")) {
+                try {
+                    await fetch("/api/shutdown", { method: "POST" });
+                    document.body.innerHTML = `
+                        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;background:#0b0f19;color:#ef4444;font-family:'Inter',sans-serif;text-align:center;padding:2rem;">
+                            <i class="fa-solid fa-power-off" style="font-size:4rem;margin-bottom:1.5rem;color:#ef4444;"></i>
+                            <h1 style="font-size:2rem;margin-bottom:0.5rem;color:#fff;">Dashboard Server Stopped</h1>
+                            <p style="color:#8c9cb8;font-size:1rem;max-width:500px;">The Python dashboard server and serial port connections have been safely shut down.</p>
+                            <p style="color:#5c6b89;font-size:0.85rem;margin-top:1.5rem;">You can close this browser window.</p>
+                        </div>
+                    `;
+                } catch (err) {
+                    console.error("Shutdown error:", err);
+                }
+            }
+        });
+    }
+
     refreshPortsBtn.addEventListener("click", loadPorts);
 
     // Update Dashboard UI with state object

@@ -1,8 +1,12 @@
 import os
+import sys
+import time
+import signal
 import asyncio
 import json
 import csv
 import io
+import threading
 import webbrowser
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
@@ -108,6 +112,21 @@ def clear_history():
     manager.db.clear_history()
     return {"status": "ok", "stats": manager.db.get_stats()}
 
+# --- Shutdown Endpoint ---
+@app.post("/api/shutdown")
+def shutdown_server():
+    """Cleanly disconnect serial port and terminate server process."""
+    print("\n[SYSTEM] Exit requested via Web UI. Shutting down cleanly...")
+    manager.disconnect()
+
+    def delayed_exit():
+        time.sleep(0.5)
+        print("[SYSTEM] Goodbye!")
+        os._exit(0)
+
+    threading.Thread(target=delayed_exit, daemon=True).start()
+    return {"status": "ok", "message": "Server shutting down cleanly..."}
+
 # --- WebSocket Endpoint ---
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -140,7 +159,21 @@ def read_index():
         return FileResponse(index_path)
     return HTMLResponse("<h1>Dashboard HTML loading...</h1>")
 
+# Signal Handlers for Ctrl+C / Ctrl+X / SIGINT / SIGTERM
+def setup_signal_handlers():
+    def handle_signal(sig, frame):
+        print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Shutting down...")
+        manager.disconnect()
+        sys.exit(0)
+
+    try:
+        signal.signal(signal.SIGINT, handle_signal)
+        signal.signal(signal.SIGTERM, handle_signal)
+    except Exception as e:
+        print(f"[SYSTEM] Signal handler notice: {e}")
+
 if __name__ == "__main__":
+    setup_signal_handlers()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     
@@ -148,6 +181,7 @@ if __name__ == "__main__":
     url = f"http://localhost:{port_num}"
     print(f"\n=======================================================")
     print(f"Quectel BC660K Web Dashboard running at: {url}")
+    print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
     print(f"=======================================================\n")
 
     try:
@@ -157,4 +191,8 @@ if __name__ == "__main__":
 
     config = uvicorn.Config(app=app, host="127.0.0.1", port=port_num, loop="asyncio")
     server = uvicorn.Server(config)
-    loop.run_until_complete(server.serve())
+    try:
+        loop.run_until_complete(server.serve())
+    except (KeyboardInterrupt, SystemExit):
+        print("\n[SYSTEM] Server process terminated.")
+        manager.disconnect()

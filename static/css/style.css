@@ -156,6 +156,16 @@ select:focus {
     background: rgba(99, 102, 241, 0.35);
 }
 
+.btn-danger-outline {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.btn-danger-outline:hover {
+    background: rgba(239, 68, 68, 0.3);
+}
+
 .btn-outline {
     background: transparent;
     color: var(--text-main);
