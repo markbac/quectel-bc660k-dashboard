@@ -51,10 +51,6 @@
                     <i class="fa-solid fa-link"></i> Connect
                 </button>
 
-                <button id="demoBtn" class="btn btn-secondary">
-                    <i class="fa-solid fa-flask"></i> Demo Mode
-                </button>
-
                 <button id="exitBtn" class="btn btn-danger-outline" title="Stop Server and Disconnect Board">
                     <i class="fa-solid fa-power-off"></i> Exit
                 </button>
@@ -68,6 +64,12 @@
 
         <!-- Main Dashboard Content Grid -->
         <main class="dashboard-grid">
+            <!-- Connectivity Diagnostic Subheader -->
+            <div class="connectivity-subbar">
+                <span class="subbar-label"><i class="fa-solid fa-circle-nodes"></i> Connectivity Status:</span>
+                <span class="subbar-val" id="connectivityStatusVal">Disconnected</span>
+            </div>
+
             <!-- Row 1: Key Signal Metrics Cards -->
             <section class="metrics-row">
                 <!-- RSRP Signal Card -->
@@ -393,12 +395,15 @@
                 </div>
             </section>
 
-            <!-- Row 6: Raw AT Terminal & Console -->
+            <!-- Row 6: Raw ASCII AT Terminal & File Log Toggle -->
             <section class="terminal-row">
                 <div class="card terminal-card">
                     <div class="card-header">
-                        <span class="card-title"><i class="fa-solid fa-terminal"></i> AT Command Terminal & Raw Logs</span>
+                        <span class="card-title"><i class="fa-solid fa-terminal"></i> ASCII Serial Diagnostics Log</span>
                         <div class="terminal-quick-cmds">
+                            <button id="toggleFileLogBtn" class="btn btn-sm btn-secondary" title="Enable/Disable saving logs to dashboard_serial.log">
+                                <i class="fa-solid fa-file-lines"></i> Disk Log: ON
+                            </button>
                             <button class="cmd-btn" data-cmd="AT">AT</button>
                             <button class="cmd-btn" data-cmd="ATI">ATI</button>
                             <button class="cmd-btn" data-cmd="AT+CSQ">AT+CSQ</button>
@@ -415,7 +420,7 @@
                     </div>
                     <div class="card-body terminal-body">
                         <div class="log-console" id="logConsole">
-                            <div class="log-line log-info">[SYSTEM] Quectel BC660K Dashboard Ready. Connect to serial port or start Demo Mode.</div>
+                            <div class="log-line log-info">[SYSTEM] Quectel BC660K Dashboard Ready. Connect to serial port or run with --demo flag.</div>
                         </div>
                         <div class="terminal-input-bar">
                             <span class="prompt">AT></span>

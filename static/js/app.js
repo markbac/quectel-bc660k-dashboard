@@ -4,9 +4,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const baudSelect = document.getElementById("baudSelect");
     const refreshPortsBtn = document.getElementById("refreshPortsBtn");
     const connectBtn = document.getElementById("connectBtn");
-    const demoBtn = document.getElementById("demoBtn");
     const connectionStatus = document.getElementById("connectionStatus");
     const statusText = document.getElementById("statusText");
+    const connectivityStatusVal = document.getElementById("connectivityStatusVal");
 
     // Metrics
     const rsrpVal = document.getElementById("rsrpVal");
@@ -63,11 +63,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const scanLoading = document.getElementById("scanLoading");
     const networksTableBody = document.getElementById("networksTableBody");
 
-    // Terminal
+    // Terminal & Disk Log Toggle
     const logConsole = document.getElementById("logConsole");
     const atInput = document.getElementById("atInput");
     const sendAtBtn = document.getElementById("sendAtBtn");
     const clearLogBtn = document.getElementById("clearLogBtn");
+    const toggleFileLogBtn = document.getElementById("toggleFileLogBtn");
+    let fileLoggingEnabled = true;
 
     let socket = null;
     let chart = null;
@@ -198,7 +200,6 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/history?limit=100");
             const data = await res.json();
             
-            // Render Stats
             const stats = data.stats;
             dbTotalRecords.textContent = `${stats.total_records} Records`;
             statMinRsrp.textContent = stats.total_records > 0 ? `${stats.min_rsrp} dBm` : "- dBm";
@@ -207,12 +208,10 @@ document.addEventListener("DOMContentLoaded", () => {
             statAvgRsrq.textContent = stats.total_records > 0 ? `${stats.avg_rsrq} dB` : "- dB";
             statUniqueCells.textContent = stats.total_cells || 0;
 
-            // Render History Table
             const history = data.history || [];
             if (history.length === 0) {
                 historyTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No historical telemetry records in SQLite database yet.</td></tr>`;
             } else {
-                // Show newest first
                 const rev = [...history].reverse();
                 historyTableBody.innerHTML = rev.slice(0, 50).map(row => `
                     <tr>
@@ -241,6 +240,35 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Toggle Disk File Logging
+    if (toggleFileLogBtn) {
+        toggleFileLogBtn.addEventListener("click", async () => {
+            const targetState = !fileLoggingEnabled;
+            try {
+                const res = await fetch("/api/file_logging", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ enabled: targetState })
+                });
+                const data = await res.json();
+                fileLoggingEnabled = data.file_logging_enabled;
+                updateFileLogButtonUI(fileLoggingEnabled);
+            } catch (err) {
+                console.error("Error toggling file logging:", err);
+            }
+        });
+    }
+
+    function updateFileLogButtonUI(enabled) {
+        if (enabled) {
+            toggleFileLogBtn.className = "btn btn-sm btn-secondary";
+            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-lines"></i> Disk Log: ON`;
+        } else {
+            toggleFileLogBtn.className = "btn btn-sm btn-outline";
+            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-excel"></i> Disk Log: OFF`;
+        }
+    }
+
     // Connect to Selected Port
     connectBtn.addEventListener("click", async () => {
         if (connectBtn.dataset.state === "connected") {
@@ -252,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const baudrate = parseInt(baudSelect.value);
 
         if (!port) {
-            alert("Please select a serial port or use Demo Mode.");
+            alert("Please select a serial port.");
             return;
         }
 
@@ -268,15 +296,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }
         } catch (err) {
             alert(`Error connecting: ${err.message}`);
-        }
-    });
-
-    // Demo Mode Trigger
-    demoBtn.addEventListener("click", async () => {
-        try {
-            await fetch("/api/demo", { method: "POST" });
-        } catch (err) {
-            console.error("Error toggling demo mode:", err);
         }
     });
 
@@ -309,7 +328,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (state.connected) {
             if (state.mode === "DEMO") {
                 connectionStatus.className = "status-badge demo";
-                statusText.textContent = "Demo Mode";
+                statusText.textContent = "Demo Mode (--demo)";
             } else {
                 connectionStatus.className = "status-badge connected";
                 statusText.textContent = `Connected (${state.port})`;
@@ -323,6 +342,15 @@ document.addEventListener("DOMContentLoaded", () => {
             connectBtn.innerHTML = `<i class="fa-solid fa-link"></i> Connect`;
             connectBtn.dataset.state = "disconnected";
             connectBtn.className = "btn btn-primary";
+        }
+
+        // Connectivity Diagnostic Subbar
+        connectivityStatusVal.textContent = state.connectivity_status || "Disconnected";
+
+        // File logging state update
+        if (typeof state.file_logging_enabled === "boolean") {
+            fileLoggingEnabled = state.file_logging_enabled;
+            updateFileLogButtonUI(fileLoggingEnabled);
         }
 
         // Signal Metrics
@@ -415,7 +443,6 @@ document.addEventListener("DOMContentLoaded", () => {
             chart.update();
         }
 
-        // Refresh SQLite history view periodically
         loadHistory();
     }
 

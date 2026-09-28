@@ -231,7 +231,27 @@ select:focus {
     box-shadow: 0 0 8px currentColor;
 }
 
-/* Dashboard Grid Layout */
+/* Connectivity Subbar */
+.connectivity-subbar {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.subbar-label {
+    color: var(--text-muted);
+}
+
+.subbar-val {
+    color: var(--accent);
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
 .dashboard-grid {
     display: flex;
     flex-direction: column;

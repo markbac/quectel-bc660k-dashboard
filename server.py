@@ -6,6 +6,7 @@ import asyncio
 import json
 import csv
 import io
+import argparse
 import threading
 import webbrowser
 from typing import Dict, Any, List, Optional
@@ -17,8 +18,16 @@ import uvicorn
 
 from serial_manager import SerialManager
 
+# Parse Command Line Arguments
+parser = argparse.ArgumentParser(description="Quectel BC660K Signal & Network Web Dashboard")
+parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode (no COM port required)")
+parser.add_argument("--port", "-p", type=str, default=None, help="Initial COM port to connect on startup (e.g. COM3)")
+parser.add_argument("--baud", "-b", type=int, default=9600, help="Initial baud rate (default: 9600)")
+parser.add_argument("--no-file-log", action="store_true", help="Disable writing serial logs to disk file")
+args, _ = parser.parse_known_args()
+
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
-manager = SerialManager()
+manager = SerialManager(file_logging_enabled=not args.no_file_log)
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -43,6 +52,9 @@ class ConnectRequest(BaseModel):
 class SendATRequest(BaseModel):
     command: str
 
+class FileLogToggleRequest(BaseModel):
+    enabled: bool
+
 # --- REST Endpoints ---
 @app.get("/api/ports")
 def get_ports():
@@ -59,15 +71,16 @@ def connect_port(req: ConnectRequest):
         raise HTTPException(status_code=400, detail=f"Could not connect to {req.port}")
     return {"status": "ok", "state": manager.state}
 
-@app.post("/api/demo")
-def enable_demo():
-    manager.enable_demo_mode()
-    return {"status": "ok", "state": manager.state}
-
 @app.post("/api/disconnect")
 def disconnect_port():
     manager.disconnect()
     return {"status": "ok", "state": manager.state}
+
+@app.post("/api/file_logging")
+def toggle_file_logging(req: FileLogToggleRequest):
+    """Toggle writing diagnostic log entries to disk file."""
+    manager.set_file_logging(req.enabled)
+    return {"status": "ok", "file_logging_enabled": manager.file_logging_enabled}
 
 @app.post("/api/send_at")
 def send_at(req: SendATRequest):
@@ -174,13 +187,24 @@ def setup_signal_handlers():
 
 if __name__ == "__main__":
     setup_signal_handlers()
+
+    # Handle CLI startup flags
+    if args.demo:
+        print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
+        manager.enable_demo_mode()
+    elif args.port:
+        print(f"[STARTUP] Initial COM port specified: {args.port} @ {args.baud} baud")
+        manager.connect(args.port, args.baud)
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
+
     port_num = 8080
     url = f"http://localhost:{port_num}"
     print(f"\n=======================================================")
     print(f"Quectel BC660K Web Dashboard running at: {url}")
+    print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE (Select COM Port)'}")
+    print(f"File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
     print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
     print(f"=======================================================\n")
 
