@@ -12,9 +12,12 @@ import serial.tools.list_ports
 from db_manager import DBManager
 from pylogkit import setup_logging
 
+__version__ = "1.2.0"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 
 class SerialManager:
+    VERSION = __version__
+
     def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 60):
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
@@ -44,6 +47,7 @@ class SerialManager:
             file_path=self.log_file_path,
             level="DEBUG"
         )
+        self.py_logger.info(f"Quectel BC660K Serial Manager v{self.VERSION} Initialized.")
 
         self.last_cops_op: str = "Unknown"
         self.last_cereg_stat: str = "Unknown"
@@ -229,11 +233,12 @@ class SerialManager:
         return result
 
     def _reclaim_port(self, port: str):
-        self.log(f"[WARNING] Port {port} is locked by another process! Attempting to free port handle...", "WARNING")
+        self.log(f"[WARNING] Port {port} is locked by another process! Attempting to free port handle (Tool v{self.VERSION})...", "WARNING")
         try:
-            cmd = f'powershell -Command "Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq \'python.exe\' -or $_.CommandLine -like \'*server.py*\') }} | Stop-Process -Force -ErrorAction SilentlyContinue"'
-            subprocess.run(cmd, shell=True, timeout=3)
-            time.sleep(0.5)
+            ps_script = f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*server.py*') }} | Stop-Process -Force -ErrorAction SilentlyContinue"
+            cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{ps_script}"'
+            subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.8)
         except Exception as e:
             self.log(f"[RECLAIM ERROR] Could not terminate locking process: {e}", "ERROR")
 

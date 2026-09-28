@@ -220,7 +220,7 @@ if __name__ == "__main__":
     port_num = 8080
     url = f"http://localhost:{port_num}"
     print(f"\n=======================================================")
-    print(f"Quectel BC660K Web Dashboard running at: {url}")
+    print(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
     print(f"Baud Rate: {args.baud}")
     print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
     print(f"Py-LogKit File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
