@@ -11,6 +11,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const telemetryIntervalSelect = document.getElementById("telemetryIntervalSelect");
     const copsIntervalSelect = document.getElementById("copsIntervalSelect");
 
+    // APN Elements
+    const apnInput = document.getElementById("apnInput");
+    const saveApnBtn = document.getElementById("saveApnBtn");
+    const currentApnVal = document.getElementById("currentApnVal");
+    const pdpTypeVal = document.getElementById("pdpTypeVal");
+    const apnAttachBadge = document.getElementById("apnAttachBadge");
+
     // Metrics
     const rsrpVal = document.getElementById("rsrpVal");
     const rsrpBar = document.getElementById("rsrpBar");
@@ -248,6 +255,33 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // Save & Attach APN
+    if (saveApnBtn) {
+        saveApnBtn.addEventListener("click", async () => {
+            const apn = apnInput.value.trim();
+            if (!apn) {
+                alert("Please enter a valid APN name.");
+                return;
+            }
+
+            try {
+                const res = await fetch("/api/apn", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ apn, pdp_type: "IP", cid: 1 })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert(`APN '${apn}' configured successfully!\nResponse:\n${data.response}`);
+                } else {
+                    alert(`Failed to set APN: ${data.detail}`);
+                }
+            } catch (err) {
+                alert(`Error setting APN: ${err.message}`);
+            }
+        });
+    }
+
     // Interval Settings Handlers
     async function updateIntervalSettings() {
         const telemetry_interval = parseInt(telemetryIntervalSelect.value);
@@ -380,6 +414,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (state.telemetry_interval) telemetryIntervalSelect.value = state.telemetry_interval;
         if (typeof state.cops_scan_interval === "number") copsIntervalSelect.value = state.cops_scan_interval;
+
+        // APN Info Update
+        const apnInfo = state.apn_info || {};
+        currentApnVal.textContent = apnInfo.apn || "Default / Blank";
+        pdpTypeVal.textContent = `${apnInfo.pdp_type || 'IP'} (CID: ${apnInfo.pdp_cid || 1})`;
+        if (apnInfo.attached) {
+            apnAttachBadge.className = "badge badge-good";
+            apnAttachBadge.textContent = "Attached";
+        } else {
+            apnAttachBadge.className = "badge badge-fair";
+            apnAttachBadge.textContent = "Detached";
+        }
 
         // Signal Metrics
         const sig = state.signal;

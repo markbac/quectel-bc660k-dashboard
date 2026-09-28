@@ -18,27 +18,25 @@ class SerialManager:
     def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 60):
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
-        self.baudrate: int = 115200  # Default verified baud rate for BC660K-GL
+        self.baudrate: int = 115200
         self.is_connected: bool = False
         self.is_demo: bool = False
-        
+
         self.lock = threading.Lock()
         self.scan_lock = threading.Lock()
-        
+
         self.poll_thread: Optional[threading.Thread] = None
-        self.cops_thread: Optional[threading.Thread] = None
         self.running: bool = False
         self.callbacks = []
         self.db = DBManager()
 
         self.telemetry_interval: int = telemetry_interval
-        self.cops_scan_interval: int = cops_scan_interval  # Seconds between auto AT+COPS=? scans (0 = Disabled)
+        self.cops_scan_interval: int = cops_scan_interval
         self.last_cops_scan_time: float = 0
 
         self.file_logging_enabled: bool = file_logging_enabled
         self.log_file_path: str = LOG_FILE_PATH
-        
-        # Initialize py-logkit logger
+
         self.py_logger = setup_logging(
             name="QuectelManager",
             to_console=True,
@@ -68,6 +66,12 @@ class SerialManager:
                 "sinr": 12,
                 "ber": 0,
                 "quality_label": "Good"
+            },
+            "apn_info": {
+                "apn": "iot.vodafone.com",
+                "pdp_type": "IP",
+                "attached": True,
+                "pdp_cid": 1
             },
             "serving_cell": {
                 "rat": "NB-IoT",
@@ -110,7 +114,6 @@ class SerialManager:
         }
 
     def update_settings(self, telemetry_interval: Optional[int] = None, cops_scan_interval: Optional[int] = None):
-        """Update polling and network scan intervals."""
         if telemetry_interval is not None and telemetry_interval >= 1:
             self.telemetry_interval = telemetry_interval
             self.state["telemetry_interval"] = telemetry_interval
@@ -121,6 +124,42 @@ class SerialManager:
 
         self.log(f"[CONFIG] Updated intervals: Telemetry={self.telemetry_interval}s, COPS Scan={self.cops_scan_interval}s", "INFO")
         self._notify("state", self.state)
+
+    def set_apn(self, apn: str, pdp_type: str = "IP", cid: int = 1) -> str:
+        """
+        Configure APN & PDP Context on Quectel BC660K module.
+        Executes: AT+CGDCONT=<cid>,"<pdp_type>","<apn>"
+        """
+        self.log(f"[APN CONFIG] Setting Context {cid}: Type={pdp_type}, APN='{apn}'...", "INFO")
+        
+        if self.is_demo:
+            self.state["apn_info"] = {
+                "apn": apn,
+                "pdp_type": pdp_type,
+                "attached": True,
+                "pdp_cid": cid
+            }
+            self.state["system_info"]["ip_address"] = "10.142.88.204"
+            self.log(f"[APN CONFIG] Demo APN set to '{apn}'. PDP attached.", "INFO")
+            self._notify("state", self.state)
+            return "OK"
+
+        with self.lock:
+            # Set PDP Context APN
+            cgdcont_cmd = f'AT+CGDCONT={cid},"{pdp_type}","{apn}"'
+            resp1 = self._send_at_cmd_raw(cgdcont_cmd)
+            
+            # Trigger packet domain attach
+            resp2 = self._send_at_cmd_raw("AT+CGATT=1")
+            
+            # Refresh assigned IP
+            ip_resp = self._send_at_cmd_raw("AT+CGPADDR=1")
+            self._parse_ip(ip_resp)
+            self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
+            self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
+            
+            self._notify("state", self.state)
+            return f"{resp1}\n{resp2}"
 
     def set_file_logging(self, enabled: bool):
         self.file_logging_enabled = enabled
@@ -151,7 +190,6 @@ class SerialManager:
         if len(self.state["logs"]) > 300:
             self.state["logs"].pop(0)
 
-        # Py-LogKit logger output
         if direction == "ERROR":
             self.py_logger.error(ascii_text)
         elif direction == "TX":
@@ -191,10 +229,8 @@ class SerialManager:
         return result
 
     def _reclaim_port(self, port: str):
-        """Attempt to free up port locked by lingering process."""
         self.log(f"[WARNING] Port {port} is locked by another process! Attempting to free port handle...", "WARNING")
         try:
-            # On Windows, check for Python processes running server/scripts
             cmd = f'powershell -Command "Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq \'python.exe\' -or $_.CommandLine -like \'*server.py*\') }} | Stop-Process -Force -ErrorAction SilentlyContinue"'
             subprocess.run(cmd, shell=True, timeout=3)
             time.sleep(0.5)
@@ -215,7 +251,6 @@ class SerialManager:
                 except serial.SerialException as e:
                     if "PermissionError" in str(e) or "Access is denied" in str(e):
                         self._reclaim_port(port)
-                        # Retry after reclaim
                         self.ser = serial.Serial(port, baudrate, timeout=1.5)
                     else:
                         raise e
@@ -232,14 +267,11 @@ class SerialManager:
                 self.running = True
                 self.log(f"[SUCCESS] Serial port {port} opened successfully @ {baudrate} baud.", "INFO")
 
-                # Initial hardware query
                 self._poll_hardware_info()
 
-                # Start regular signal poll thread
                 self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
                 self.poll_thread.start()
 
-                # Trigger AT+COPS=? network scan BY DEFAULT on connection in background thread!
                 self.trigger_async_cops_scan()
 
                 self._notify("state", self.state)
@@ -336,7 +368,6 @@ class SerialManager:
             return self._send_at_cmd_raw(cmd, timeout_sec=3.0)
 
     def trigger_async_cops_scan(self):
-        """Triggers network spectrum scan in a non-blocking background thread."""
         if self.state["is_scanning"]:
             return
 
@@ -368,10 +399,9 @@ class SerialManager:
         threading.Thread(target=_scan_worker, daemon=True).start()
 
     def _poll_hardware_info(self):
-        """Query SIM data, device info, voltage."""
         self._send_at_cmd_raw("ATI")
         self._send_at_cmd_raw("AT+CPIN?")
-        
+
         iccid_resp = self._send_at_cmd_raw("AT+QCCID")
         self._parse_iccid(iccid_resp)
 
@@ -380,6 +410,12 @@ class SerialManager:
 
         cbc_resp = self._send_at_cmd_raw("AT+CBC")
         self._parse_cbc(cbc_resp)
+
+        cgdcont_resp = self._send_at_cmd_raw("AT+CGDCONT?")
+        self._parse_cgdcont(cgdcont_resp)
+
+        cgatt_resp = self._send_at_cmd_raw("AT+CGATT?")
+        self._parse_cgatt(cgatt_resp)
 
     def _poll_loop(self):
         last_db_log = 0
@@ -403,7 +439,6 @@ class SerialManager:
 
                 self.state["last_update"] = time.time()
 
-                # Trigger periodic network scan if interval is set
                 if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
                     self.trigger_async_cops_scan()
 
@@ -487,6 +522,22 @@ class SerialManager:
         match = re.search(r"\+CBC:\s*(\d+)", resp)
         if match:
             self.state["system_info"]["voltage"] = int(match.group(1))
+
+    def _parse_cgdcont(self, resp: str):
+        # +CGDCONT: 1,"IP","iot.vodafone.com","0.0.0.0",0,0,0,0
+        match = re.search(r'\+CGDCONT:\s*(\d+),"([^"]+)","([^"]*)"', resp)
+        if match:
+            cid, pdp_type, apn = match.groups()
+            self.state["apn_info"]["pdp_cid"] = int(cid)
+            self.state["apn_info"]["pdp_type"] = pdp_type
+            self.state["apn_info"]["apn"] = apn or "Default / Blank"
+
+    def _parse_cgatt(self, resp: str):
+        # +CGATT: 1
+        match = re.search(r'\+CGATT:\s*(\d+)', resp)
+        if match:
+            att_code = int(match.group(1))
+            self.state["apn_info"]["attached"] = (att_code == 1)
 
     def _parse_qeng_serving(self, resp: str):
         match = re.search(r'\+QENG:\s*"servingcell","([^"]+)","([^"]+)","([^"]+)",(\d+),(\d+),([0-9A-Fa-f]+),(\d+),(\d+),(\d+),.*?([0-9A-Fa-f]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
@@ -596,6 +647,12 @@ class SerialManager:
             return f'{self.state["sim_info"]["imsi"]}\r\n\r\nOK\r\n'
         elif c == "AT+CBC":
             return f'+CBC: {self.state["system_info"]["voltage"]}\r\n\r\nOK\r\n'
+        elif c == "AT+CGDCONT?":
+            apn = self.state["apn_info"]
+            return f'+CGDCONT: {apn["pdp_cid"]},"{apn["pdp_type"]}","{apn["apn"]}","0.0.0.0",0,0,0,0\r\n\r\nOK\r\n'
+        elif c == "AT+CGATT?":
+            att = 1 if self.state["apn_info"]["attached"] else 0
+            return f'+CGATT: {att}\r\n\r\nOK\r\n'
         elif "AT+QENG=\"SERVINGCELL\"" in c:
             sc = self.state["serving_cell"]
             sig = self.state["signal"]

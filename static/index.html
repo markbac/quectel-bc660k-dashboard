@@ -181,8 +181,39 @@
                 </div>
             </section>
 
-            <!-- Row 2: SIM Card Data, Hardware & Location Grid -->
+            <!-- Row 2: APN Configuration, SIM & System Grid -->
             <section class="hardware-row">
+                <!-- APN Configurator Card -->
+                <div class="card apn-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-gears"></i> APN & PDP Context Configurator</span>
+                        <span class="badge badge-good" id="apnAttachBadge">Attached</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="apn-form">
+                            <div class="form-group">
+                                <label for="apnInput"><i class="fa-solid fa-globe"></i> APN Name:</label>
+                                <div class="input-with-button">
+                                    <input type="text" id="apnInput" placeholder="e.g. iot.vodafone.com, super, hologram..." value="iot.vodafone.com">
+                                    <button id="saveApnBtn" class="btn btn-primary btn-sm">
+                                        <i class="fa-solid fa-floppy-disk"></i> Apply & Attach APN
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="info-grid mt-2">
+                                <div class="info-item">
+                                    <span class="info-label">Active APN</span>
+                                    <span class="info-val highlight font-mono" id="currentApnVal">iot.vodafone.com</span>
+                                </div>
+                                <div class="info-item">
+                                    <span class="info-label">PDP Type / CID</span>
+                                    <span class="info-val font-mono" id="pdpTypeVal">IP (CID: 1)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- SIM Card Info -->
                 <div class="card sim-card">
                     <div class="card-header">
@@ -206,37 +237,6 @@
                             <div class="info-item">
                                 <span class="info-label">Network Assigned IP</span>
                                 <span class="info-val font-mono highlight" id="ipVal">Not Connected</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Hardware & System Info -->
-                <div class="card system-card">
-                    <div class="card-header">
-                        <span class="card-title"><i class="fa-solid fa-microchip"></i> Board Diagnostics & Power</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="info-grid">
-                            <div class="info-item">
-                                <span class="info-label">IMEI Serial Number</span>
-                                <span class="info-val font-mono" id="imeiVal">860492040182941</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Supply Voltage</span>
-                                <span class="info-val" id="voltageVal">3470 mV <small>(3.47 V)</small></span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Firmware Revision</span>
-                                <span class="info-val" id="tempVal">BC660KGLAAR01A05</span>
-                            </div>
-                            <div class="info-item">
-                                <span class="info-label">Cell Location (Est.)</span>
-                                <span class="info-val" id="locVal">
-                                    <a href="https://www.openstreetmap.org/#map=13/51.5074/-0.1278" target="_blank" id="mapLink" class="map-link">
-                                        <i class="fa-solid fa-map-pin"></i> 51.5074, -0.1278
-                                    </a>
-                                </span>
                             </div>
                         </div>
                     </div>
@@ -435,6 +435,8 @@
                             <button class="cmd-btn" data-cmd="AT+CSQ">AT+CSQ</button>
                             <button class="cmd-btn" data-cmd="AT+QCCID">AT+QCCID</button>
                             <button class="cmd-btn" data-cmd="AT+CIMI">AT+CIMI</button>
+                            <button class="cmd-btn" data-cmd="AT+CGDCONT?">AT+CGDCONT?</button>
+                            <button class="cmd-btn" data-cmd="AT+CGATT?">AT+CGATT?</button>
                             <button class="cmd-btn" data-cmd="AT+CBC">AT+CBC</button>
                             <button class="cmd-btn" data-cmd='AT+QENG="servingcell"'>Serving Cell</button>
                             <button class="cmd-btn" data-cmd="AT+COPS?">COPS?</button>
@@ -449,7 +451,7 @@
                         </div>
                         <div class="terminal-input-bar">
                             <span class="prompt">AT></span>
-                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CSQ)..." autocomplete="off">
+                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CGDCONT=1,&quot;IP&quot;,&quot;iot.vodafone.com&quot;)..." autocomplete="off">
                             <button id="sendAtBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send</button>
                         </div>
                     </div>

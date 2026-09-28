@@ -60,6 +60,11 @@ class SettingsRequest(BaseModel):
     telemetry_interval: Optional[int] = None
     cops_scan_interval: Optional[int] = None
 
+class APNRequest(BaseModel):
+    apn: str
+    pdp_type: str = "IP"
+    cid: int = 1
+
 # --- REST Endpoints ---
 @app.get("/api/ports")
 def get_ports():
@@ -85,6 +90,13 @@ def disconnect_port():
 def update_settings(req: SettingsRequest):
     manager.update_settings(req.telemetry_interval, req.cops_scan_interval)
     return {"status": "ok", "state": manager.state}
+
+@app.post("/api/apn")
+def configure_apn(req: APNRequest):
+    if not manager.is_connected:
+        raise HTTPException(status_code=400, detail="Serial port not connected")
+    res = manager.set_apn(req.apn, req.pdp_type, req.cid)
+    return {"status": "ok", "response": res, "apn_info": manager.state["apn_info"]}
 
 @app.post("/api/file_logging")
 def toggle_file_logging(req: FileLogToggleRequest):

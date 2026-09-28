@@ -262,12 +262,40 @@ select:focus {
     color: var(--text-muted);
 }
 
-.select-sm {
-    padding: 0.25rem 0.5rem;
-    font-size: 0.78rem;
-    background: var(--bg-card);
+.apn-form .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.apn-form label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.input-with-button {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.input-with-button input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 0.4rem 0.65rem;
     border-radius: 6px;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.input-with-button input:focus {
+    border-color: var(--primary);
+}
+
+.mt-2 {
+    margin-top: 0.75rem;
 }
 .dashboard-grid {
     display: flex;
