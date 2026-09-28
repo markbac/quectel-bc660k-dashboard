@@ -241,6 +241,63 @@
                         </div>
                     </div>
                 </div>
+            <!-- Row: PSM/eDRX & Ping Benchmark -->
+            <section class="apn-row">
+                <!-- PSM & eDRX Card -->
+                <div class="card psm-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-battery-half"></i> PSM & eDRX Power Saving Configurator</span>
+                        <span class="badge badge-warning" id="psmStatusBadge">PSM Disabled</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="t3412Input">T3412 Periodic TAU Timer:</label>
+                                <input type="text" id="t3412Input" value="10100101" class="font-mono" placeholder="10100101">
+                            </div>
+                            <div class="form-group">
+                                <label for="t3324Input">T3324 Active Timer:</label>
+                                <input type="text" id="t3324Input" value="00100100" class="font-mono" placeholder="00100100">
+                            </div>
+                        </div>
+                        <div class="mt-2" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                            <button id="enablePsmBtn" class="btn btn-sm btn-primary"><i class="fa-solid fa-bolt"></i> Enable PSM</button>
+                            <button id="disablePsmBtn" class="btn btn-sm btn-secondary"><i class="fa-solid fa-power-off"></i> Disable PSM</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ping & DNS Benchmark Card -->
+                <div class="card ping-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-network-wired"></i> Modem Ping & Latency Benchmark</span>
+                        <span class="badge badge-primary" id="pingStatusBadge">Ready</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label for="pingHostInput">Target Host / IP / Domain:</label>
+                            <div class="input-with-button">
+                                <input type="text" id="pingHostInput" value="8.8.8.8" class="font-mono" placeholder="8.8.8.8">
+                                <button id="runPingBtn" class="btn btn-sm btn-primary"><i class="fa-solid fa-stopwatch"></i> Run Ping</button>
+                                <button id="runDnsBtn" class="btn btn-sm btn-secondary"><i class="fa-solid fa-globe"></i> Resolve DNS</button>
+                            </div>
+                        </div>
+                        <div class="info-grid mt-2">
+                            <div class="info-item">
+                                <span class="info-label">Avg Latency (RTT)</span>
+                                <span class="info-val highlight font-mono" id="pingRttVal">- ms</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Packet Loss</span>
+                                <span class="info-val font-mono" id="pingLossVal">- %</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">DNS Resolution</span>
+                                <span class="info-val font-mono" id="dnsResultVal">Not Queried</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </section>
 
             <!-- Row 3: Live Chart & Serving Cell Info -->

@@ -65,7 +65,42 @@ class APNRequest(BaseModel):
     pdp_type: str = "IP"
     cid: int = 1
 
+class PSMRequest(BaseModel):
+    enabled: bool
+    t3412: Optional[str] = "10100101"
+    t3324: Optional[str] = "00100100"
+
+class EDRXRequest(BaseModel):
+    enabled: bool
+    edrx_val: Optional[str] = "0010"
+
+class PingRequest(BaseModel):
+    host: str = "8.8.8.8"
+    count: Optional[int] = 4
+
+class DNSRequest(BaseModel):
+    domain: str = "leshan.eclipseprojects.io"
+
 # --- REST Endpoints ---
+@app.post("/api/psm")
+def config_psm(req: PSMRequest):
+    res = manager.set_psm_config(req.enabled, req.t3412 or "10100101", req.t3324 or "00100100")
+    return {"status": "ok", "response": res, "state": manager.state}
+
+@app.post("/api/edrx")
+def config_edrx(req: EDRXRequest):
+    res = manager.set_edrx_config(req.enabled, req.edrx_val or "0010")
+    return {"status": "ok", "response": res, "state": manager.state}
+
+@app.post("/api/ping")
+def run_ping(req: PingRequest):
+    res = manager.run_ping_benchmark(req.host or "8.8.8.8", req.count or 4)
+    return {"status": "ok", "result": res, "state": manager.state}
+
+@app.post("/api/dns")
+def run_dns(req: DNSRequest):
+    res = manager.run_dns_query(req.domain or "leshan.eclipseprojects.io")
+    return {"status": "ok", "result": res, "state": manager.state}
 @app.get("/api/ports")
 def get_ports():
     return {"ports": manager.get_ports()}

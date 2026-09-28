@@ -282,6 +282,108 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // PSM & eDRX Handlers
+    const enablePsmBtn = document.getElementById("enablePsmBtn");
+    const disablePsmBtn = document.getElementById("disablePsmBtn");
+    const t3412Input = document.getElementById("t3412Input");
+    const t3324Input = document.getElementById("t3324Input");
+    const psmStatusBadge = document.getElementById("psmStatusBadge");
+
+    async function sendPsmConfig(enabled) {
+        try {
+            const res = await fetch("/api/psm", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    enabled: enabled,
+                    t3412: t3412Input ? t3412Input.value.trim() : "10100101",
+                    t3324: t3324Input ? t3324Input.value.trim() : "00100100"
+                })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                alert(`PSM ${enabled ? "Enabled" : "Disabled"} successfully!\nResponse: ${data.response}`);
+            } else {
+                alert(`PSM config failed: ${data.detail}`);
+            }
+        } catch (err) {
+            alert(`Error configuring PSM: ${err.message}`);
+        }
+    }
+
+    if (enablePsmBtn) enablePsmBtn.addEventListener("click", () => sendPsmConfig(true));
+    if (disablePsmBtn) disablePsmBtn.addEventListener("click", () => sendPsmConfig(false));
+
+    // Ping & DNS Handlers
+    const pingHostInput = document.getElementById("pingHostInput");
+    const runPingBtn = document.getElementById("runPingBtn");
+    const runDnsBtn = document.getElementById("runDnsBtn");
+    const pingRttVal = document.getElementById("pingRttVal");
+    const pingLossVal = document.getElementById("pingLossVal");
+    const dnsResultVal = document.getElementById("dnsResultVal");
+    const pingStatusBadge = document.getElementById("pingStatusBadge");
+
+    if (runPingBtn) {
+        runPingBtn.addEventListener("click", async () => {
+            const host = pingHostInput ? pingHostInput.value.trim() : "8.8.8.8";
+            if (pingStatusBadge) {
+                pingStatusBadge.textContent = "Pinging...";
+                pingStatusBadge.className = "badge badge-warning";
+            }
+            try {
+                const res = await fetch("/api/ping", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ host: host, count: 4 })
+                });
+                const data = await res.json();
+                if (res.ok && data.result) {
+                    const r = data.result;
+                    if (pingRttVal) pingRttVal.textContent = `${r.avg_rtt} ms`;
+                    if (pingLossVal) pingLossVal.textContent = `${r.loss_pct}%`;
+                    if (pingStatusBadge) {
+                        pingStatusBadge.textContent = r.status || "Completed";
+                        pingStatusBadge.className = r.loss_pct < 50 ? "badge badge-good" : "badge badge-danger";
+                    }
+                } else {
+                    alert(`Ping failed: ${data.detail}`);
+                    if (pingStatusBadge) {
+                        pingStatusBadge.textContent = "Failed";
+                        pingStatusBadge.className = "badge badge-danger";
+                    }
+                }
+            } catch (err) {
+                alert(`Error running ping: ${err.message}`);
+                if (pingStatusBadge) {
+                    pingStatusBadge.textContent = "Error";
+                    pingStatusBadge.className = "badge badge-danger";
+                }
+            }
+        });
+    }
+
+    if (runDnsBtn) {
+        runDnsBtn.addEventListener("click", async () => {
+            const domain = pingHostInput ? pingHostInput.value.trim() : "leshan.eclipseprojects.io";
+            if (dnsResultVal) dnsResultVal.textContent = "Resolving...";
+            try {
+                const res = await fetch("/api/dns", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ domain: domain })
+                });
+                const data = await res.json();
+                if (res.ok && data.result) {
+                    if (dnsResultVal) dnsResultVal.textContent = data.result.resolved_ip || "Unknown";
+                } else {
+                    if (dnsResultVal) dnsResultVal.textContent = "Resolve Error";
+                }
+            } catch (err) {
+                if (dnsResultVal) dnsResultVal.textContent = "Error";
+            }
+        });
+    }
+
     // Interval Settings Handlers
     async function updateIntervalSettings() {
         const telemetry_interval = parseInt(telemetryIntervalSelect.value);

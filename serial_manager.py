@@ -113,6 +113,19 @@ class SerialManager:
             "neighbour_cells": [],
             "networks_scan": [],
             "is_scanning": False,
+            "psm_info": {
+                "enabled": False,
+                "t3412": "10100101",
+                "t3324": "00100100",
+                "status": "PSM Disabled"
+            },
+            "edrx_info": {
+                "enabled": False,
+                "value": "0010",
+                "status": "eDRX Disabled"
+            },
+            "last_ping_result": None,
+            "last_dns_result": None,
             "last_update": time.time(),
             "logs": []
         }
@@ -171,6 +184,148 @@ class SerialManager:
         status_msg = "ENABLED" if enabled else "DISABLED"
         self.log(f"[CONFIG] Disk file logging {status_msg} ({self.log_file_path})", "INFO")
         self._notify("state", self.state)
+
+    def set_psm_config(self, enabled: bool, t3412: str = "10100101", t3324: str = "00100100") -> str:
+        """Configure PSM (Power Saving Mode) on Quectel BC660K."""
+        mode = 1 if enabled else 0
+        self.log(f"[PSM CONFIG] Setting PSM Mode={mode}, T3412='{t3412}', T3324='{t3324}'...", "INFO")
+        
+        if self.is_demo:
+            self.state["psm_info"] = {
+                "enabled": enabled,
+                "t3412": t3412,
+                "t3324": t3324,
+                "status": "PSM Enabled (Simulated)" if enabled else "PSM Disabled"
+            }
+            self.log("[PSM OK] Simulated PSM updated.", "INFO")
+            self._notify("state", self.state)
+            return "OK"
+
+        with self.lock:
+            cmd = f'AT+CPSMS={mode},,,"{t3412}","{t3324}"'
+            resp = self._send_at_cmd_raw(cmd)
+            self.state["psm_info"] = {
+                "enabled": enabled,
+                "t3412": t3412,
+                "t3324": t3324,
+                "status": "PSM Enabled" if enabled else "PSM Disabled"
+            }
+            self._notify("state", self.state)
+            return resp
+
+    def set_edrx_config(self, enabled: bool, edrx_val: str = "0010") -> str:
+        """Configure eDRX (Extended Discontinuous Reception) on Quectel BC660K."""
+        mode = 1 if enabled else 0
+        self.log(f"[eDRX CONFIG] Setting eDRX Mode={mode}, Value='{edrx_val}'...", "INFO")
+        
+        if self.is_demo:
+            self.state["edrx_info"] = {
+                "enabled": enabled,
+                "value": edrx_val,
+                "status": "eDRX Enabled (Simulated)" if enabled else "eDRX Disabled"
+            }
+            self.log("[eDRX OK] Simulated eDRX updated.", "INFO")
+            self._notify("state", self.state)
+            return "OK"
+
+        with self.lock:
+            cmd = f'AT+CEDRXS={mode},5,"{edrx_val}"'
+            resp = self._send_at_cmd_raw(cmd)
+            self.state["edrx_info"] = {
+                "enabled": enabled,
+                "value": edrx_val,
+                "status": "eDRX Enabled" if enabled else "eDRX Disabled"
+            }
+            self._notify("state", self.state)
+            return resp
+
+    def run_ping_benchmark(self, host: str = "8.8.8.8", count: int = 4) -> Dict[str, Any]:
+        """Executes ICMP Ping test over modem PDP context."""
+        self.log(f"[PING TEST] Pinging '{host}' ({count} packets)...", "INFO")
+        
+        if self.is_demo:
+            time.sleep(1.2)
+            res = {
+                "host": host,
+                "sent": count,
+                "received": count,
+                "lost": 0,
+                "loss_pct": 0.0,
+                "min_rtt": 124,
+                "max_rtt": 168,
+                "avg_rtt": 142,
+                "status": "Success (Simulated)"
+            }
+            self.state["last_ping_result"] = res
+            self.log(f"[PING RESULT] {host}: Avg RTT {res['avg_rtt']} ms, 0% Loss", "INFO")
+            self._notify("state", self.state)
+            return res
+
+        with self.lock:
+            cmd = f'AT+QPING=1,"{host}",4,{count}'
+            resp = self._send_at_cmd_raw(cmd, timeout_sec=10.0)
+            
+            match = re.search(r'\+QPING:\s*\d+,(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)', resp)
+            if match:
+                sent, rcvd, lost, min_rtt, max_rtt, avg_rtt = [int(x) for x in match.groups()]
+                loss_pct = (lost / sent * 100) if sent > 0 else 100.0
+                res = {
+                    "host": host,
+                    "sent": sent,
+                    "received": rcvd,
+                    "lost": lost,
+                    "loss_pct": loss_pct,
+                    "min_rtt": min_rtt,
+                    "max_rtt": max_rtt,
+                    "avg_rtt": avg_rtt,
+                    "status": "Success" if rcvd > 0 else "Failed"
+                }
+            else:
+                res = {
+                    "host": host,
+                    "sent": count,
+                    "received": 0,
+                    "lost": count,
+                    "loss_pct": 100.0,
+                    "min_rtt": 0,
+                    "max_rtt": 0,
+                    "avg_rtt": 0,
+                    "status": f"Response: {resp.strip()}"
+                }
+
+            self.state["last_ping_result"] = res
+            self.log(f"[PING RESULT] {host}: Avg RTT {res.get('avg_rtt', 0)} ms", "INFO")
+            self._notify("state", self.state)
+            return res
+
+    def run_dns_query(self, domain: str = "leshan.eclipseprojects.io") -> Dict[str, Any]:
+        """Executes DNS domain lookup on modem."""
+        self.log(f"[DNS QUERY] Resolving domain '{domain}'...", "INFO")
+        
+        if self.is_demo:
+            time.sleep(0.8)
+            res = {"domain": domain, "resolved_ip": "51.159.20.165", "status": "Success (Simulated)"}
+            self.state["last_dns_result"] = res
+            self.log(f"[DNS RESULT] {domain} -> {res['resolved_ip']}", "INFO")
+            self._notify("state", self.state)
+            return res
+
+        with self.lock:
+            cmd = f'AT+QIDNSGIP=1,"{domain}"'
+            resp = self._send_at_cmd_raw(cmd, timeout_sec=8.0)
+            
+            match = re.search(r'\+QIDNSGIP:\s*0,1,1,?"([0-9\.]+)"?', resp) or re.search(r'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', resp)
+            resolved_ip = match.group(1) if match else "Failed to resolve"
+            
+            res = {
+                "domain": domain,
+                "resolved_ip": resolved_ip,
+                "status": "Success" if match else "Failed"
+            }
+            self.state["last_dns_result"] = res
+            self.log(f"[DNS RESULT] {domain} -> {resolved_ip}", "INFO")
+            self._notify("state", self.state)
+            return res
 
     def register_callback(self, callback):
         self.callbacks.append(callback)
