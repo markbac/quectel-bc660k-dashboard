@@ -194,9 +194,12 @@ def read_index():
 
 def setup_signal_handlers():
     def handle_signal(sig, frame):
-        print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Shutting down...")
-        manager.disconnect()
-        sys.exit(0)
+        print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Goodbye!")
+        try:
+            manager.disconnect()
+        except Exception:
+            pass
+        os._exit(0)
 
     try:
         signal.signal(signal.SIGINT, handle_signal)
