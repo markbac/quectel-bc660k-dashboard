@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quectel BC660K Cellular & Network Dashboard</title>
+    <!-- FontAwesome & Google Fonts -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navbar -->
+        <header class="navbar">
+            <div class="brand">
+                <i class="fa-solid fa-tower-cell brand-icon"></i>
+                <div class="brand-text">
+                    <h1>Quectel BC660K-GL</h1>
+                    <span class="subtitle">LTE Cat NB2 Signal & Network Analyzer</span>
+                </div>
+            </div>
+
+            <!-- Serial Connection Control Bar -->
+            <div class="connection-bar">
+                <div class="control-group">
+                    <label for="portSelect"><i class="fa-solid fa-plug"></i> Port:</label>
+                    <select id="portSelect">
+                        <option value="">Scanning ports...</option>
+                    </select>
+                    <button id="refreshPortsBtn" class="btn btn-icon" title="Refresh Serial Ports">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                </div>
+
+                <div class="control-group">
+                    <label for="baudSelect"><i class="fa-solid fa-gauge-high"></i> Baud:</label>
+                    <select id="baudSelect">
+                        <option value="9600" selected>9600 (Default)</option>
+                        <option value="115200">115200</option>
+                        <option value="57600">57600</option>
+                        <option value="19200">19200</option>
+                    </select>
+                </div>
+
+                <button id="connectBtn" class="btn btn-primary">
+                    <i class="fa-solid fa-link"></i> Connect
+                </button>
+
+                <button id="demoBtn" class="btn btn-secondary">
+                    <i class="fa-solid fa-flask"></i> Demo Mode
+                </button>
+
+                <div class="status-badge disconnected" id="connectionStatus">
+                    <span class="status-dot"></span>
+                    <span id="statusText">Disconnected</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Content Grid -->
+        <main class="dashboard-grid">
+            <!-- Row 1: Key Metrics Cards -->
+            <section class="metrics-row">
+                <!-- RSRP Signal Card -->
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-signal"></i> RSRP (Signal Power)</span>
+                        <span class="badge badge-good" id="rsrpQuality">Good</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="rsrpVal">-98</span>
+                            <span class="metric-unit">dBm</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="rsrpBar" style="width: 50%;"></div>
+                        </div>
+                        <div class="metric-footer">
+                            <span>Poor (-140)</span>
+                            <span>Excellent (-50)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RSRQ Signal Quality -->
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-chart-line"></i> RSRQ (Signal Quality)</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="rsrqVal">-11</span>
+                            <span class="metric-unit">dB</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar progress-info" id="rsrqBar" style="width: 65%;"></div>
+                        </div>
+                        <div class="metric-footer">
+                            <span>Poor (-20 dB)</span>
+                            <span>Ideal (0 dB)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- RSSI Card -->
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-wifi"></i> RSSI & CSQ</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="rssiVal">-85</span>
+                            <span class="metric-unit">dBm</span>
+                            <span class="metric-sub" id="csqVal">(CSQ: 14/31)</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar progress-accent" id="rssiBar" style="width: 45%;"></div>
+                        </div>
+                        <div class="metric-footer">
+                            <span>CSQ 0</span>
+                            <span>CSQ 31</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SINR Card -->
+                <div class="card metric-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-sliders"></i> SINR (Noise Ratio)</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="metric-value-container">
+                            <span class="metric-value" id="sinrVal">12</span>
+                            <span class="metric-unit">dB</span>
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar progress-warning" id="sinrBar" style="width: 55%;"></div>
+                        </div>
+                        <div class="metric-footer">
+                            <span>-10 dB</span>
+                            <span>+30 dB</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Row 2: Chart & Serving Cell Info -->
+            <section class="middle-row">
+                <!-- Live Chart -->
+                <div class="card chart-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-chart-area"></i> Live Signal Strength Trend</span>
+                        <span class="update-pulse" id="livePulse"><i class="fa-solid fa-circle"></i> Live</span>
+                    </div>
+                    <div class="card-body chart-container">
+                        <canvas id="signalChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Serving Cell & Hardware Info -->
+                <div class="card serving-cell-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-broadcast-tower"></i> Serving Cell Details</span>
+                        <span class="badge badge-primary" id="ratBadge">NB-IoT</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">Network Carrier</span>
+                                <span class="info-val highlight" id="operatorVal">Vodafone UK</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">PLMN (MCC-MNC)</span>
+                                <span class="info-val" id="plmnVal">234-15</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Cell ID</span>
+                                <span class="info-val" id="cellIdVal">1D2F401 <small id="cellIdDec">(30602241)</small></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">TAC (Tracking Area)</span>
+                                <span class="info-val" id="tacVal">5F4E <small id="tacDec">(24398)</small></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Physical Cell ID (PCI)</span>
+                                <span class="info-val" id="pciVal">320</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">EARFCN & Band</span>
+                                <span class="info-val" id="bandVal">EARFCN 6300 (Band 8)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Row 3: Neighboring Cells & Network Scanner -->
+            <section class="bottom-row">
+                <!-- Neighboring Cells Table -->
+                <div class="card neighbour-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-network-wired"></i> Neighboring Cells</span>
+                        <span class="count-tag" id="neighbourCount">3 Detected</span>
+                    </div>
+                    <div class="card-body table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>PCI</th>
+                                    <th>EARFCN</th>
+                                    <th>RSRP</th>
+                                    <th>RSRQ</th>
+                                    <th>Signal Rel.</th>
+                                </tr>
+                            </thead>
+                            <tbody id="neighbourTableBody">
+                                <tr>
+                                    <td colspan="5" class="empty-state">No neighbor cells detected yet</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Carrier Network Scanner (AT+COPS=?) -->
+                <div class="card scanner-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-magnifying-glass-chart"></i> Available Carrier Networks</span>
+                        <button id="scanBtn" class="btn btn-sm btn-outline">
+                            <i class="fa-solid fa-radar"></i> Scan Networks (AT+COPS=?)
+                        </button>
+                    </div>
+                    <div class="card-body table-responsive">
+                        <div id="scanLoading" class="scan-loading hidden">
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <span>Scanning cellular spectrum for available networks... (this takes up to 30s)</span>
+                        </div>
+                        <table class="data-table" id="networksTable">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Operator Name</th>
+                                    <th>PLMN</th>
+                                    <th>Access Tech</th>
+                                </tr>
+                            </thead>
+                            <tbody id="networksTableBody">
+                                <tr>
+                                    <td colspan="4" class="empty-state">Click "Scan Networks" to search visible networks</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Row 4: Raw AT Terminal & Console -->
+            <section class="terminal-row">
+                <div class="card terminal-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-terminal"></i> AT Command Terminal & Raw Logs</span>
+                        <div class="terminal-quick-cmds">
+                            <button class="cmd-btn" data-cmd="AT">AT</button>
+                            <button class="cmd-btn" data-cmd="ATI">ATI</button>
+                            <button class="cmd-btn" data-cmd="AT+CSQ">AT+CSQ</button>
+                            <button class="cmd-btn" data-cmd='AT+QENG="servingcell"'>Serving Cell</button>
+                            <button class="cmd-btn" data-cmd='AT+QENG="neighbourcell"'>Neighbours</button>
+                            <button class="cmd-btn" data-cmd="AT+COPS?">COPS?</button>
+                            <button class="cmd-btn" data-cmd="AT+CEREG?">CEREG?</button>
+                            <button id="clearLogBtn" class="btn btn-sm btn-icon"><i class="fa-solid fa-trash"></i></button>
+                        </div>
+                    </div>
+                    <div class="card-body terminal-body">
+                        <div class="log-console" id="logConsole">
+                            <div class="log-line log-info">[SYSTEM] Quectel BC660K Dashboard Ready. Connect to serial port or start Demo Mode.</div>
+                        </div>
+                        <div class="terminal-input-bar">
+                            <span class="prompt">AT></span>
+                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CSQ)..." autocomplete="off">
+                            <button id="sendAtBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

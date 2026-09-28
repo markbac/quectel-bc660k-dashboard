@@ -1,0 +1,410 @@
+document.addEventListener("DOMContentLoaded", () => {
+    // DOM Elements
+    const portSelect = document.getElementById("portSelect");
+    const baudSelect = document.getElementById("baudSelect");
+    const refreshPortsBtn = document.getElementById("refreshPortsBtn");
+    const connectBtn = document.getElementById("connectBtn");
+    const demoBtn = document.getElementById("demoBtn");
+    const connectionStatus = document.getElementById("connectionStatus");
+    const statusText = document.getElementById("statusText");
+
+    // Metrics
+    const rsrpVal = document.getElementById("rsrpVal");
+    const rsrpBar = document.getElementById("rsrpBar");
+    const rsrpQuality = document.getElementById("rsrpQuality");
+
+    const rsrqVal = document.getElementById("rsrqVal");
+    const rsrqBar = document.getElementById("rsrqBar");
+
+    const rssiVal = document.getElementById("rssiVal");
+    const csqVal = document.getElementById("csqVal");
+    const rssiBar = document.getElementById("rssiBar");
+
+    const sinrVal = document.getElementById("sinrVal");
+    const sinrBar = document.getElementById("sinrBar");
+
+    // Serving Cell
+    const ratBadge = document.getElementById("ratBadge");
+    const operatorVal = document.getElementById("operatorVal");
+    const plmnVal = document.getElementById("plmnVal");
+    const cellIdVal = document.getElementById("cellIdVal");
+    const cellIdDec = document.getElementById("cellIdDec");
+    const tacVal = document.getElementById("tacVal");
+    const tacDec = document.getElementById("tacDec");
+    const pciVal = document.getElementById("pciVal");
+    const bandVal = document.getElementById("bandVal");
+
+    // Tables
+    const neighbourTableBody = document.getElementById("neighbourTableBody");
+    const neighbourCount = document.getElementById("neighbourCount");
+    const scanBtn = document.getElementById("scanBtn");
+    const scanLoading = document.getElementById("scanLoading");
+    const networksTableBody = document.getElementById("networksTableBody");
+
+    // Terminal
+    const logConsole = document.getElementById("logConsole");
+    const atInput = document.getElementById("atInput");
+    const sendAtBtn = document.getElementById("sendAtBtn");
+    const clearLogBtn = document.getElementById("clearLogBtn");
+
+    let socket = null;
+    let chart = null;
+    let chartData = {
+        labels: [],
+        rsrp: [],
+        rsrq: []
+    };
+
+    // Initialize Signal Trend Chart
+    function initChart() {
+        const ctx = document.getElementById("signalChart").getContext("2d");
+        chart = new Chart(ctx, {
+            type: "line",
+            data: {
+                labels: chartData.labels,
+                datasets: [
+                    {
+                        label: "RSRP (dBm)",
+                        data: chartData.rsrp,
+                        borderColor: "#3b82f6",
+                        backgroundColor: "rgba(59, 130, 246, 0.1)",
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: true,
+                        yAxisID: "y"
+                    },
+                    {
+                        label: "RSRQ (dB)",
+                        data: chartData.rsrq,
+                        borderColor: "#06b6d4",
+                        backgroundColor: "transparent",
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        tension: 0.3,
+                        yAxisID: "y1"
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: {
+                        grid: { color: "rgba(255, 255, 255, 0.05)" },
+                        ticks: { color: "#8c9cb8", font: { size: 10 } }
+                    },
+                    y: {
+                        type: "linear",
+                        display: true,
+                        position: "left",
+                        title: { display: true, text: "RSRP (dBm)", color: "#3b82f6" },
+                        min: -140,
+                        max: -50,
+                        grid: { color: "rgba(255, 255, 255, 0.08)" },
+                        ticks: { color: "#8c9cb8" }
+                    },
+                    y1: {
+                        type: "linear",
+                        display: true,
+                        position: "right",
+                        title: { display: true, text: "RSRQ (dB)", color: "#06b6d4" },
+                        min: -25,
+                        max: 0,
+                        grid: { drawOnChartArea: false },
+                        ticks: { color: "#8c9cb8" }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: "#f0f4fc" } }
+                }
+            }
+        });
+    }
+
+    // Connect WebSocket
+    function connectWebSocket() {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+        socket = new WebSocket(wsUrl);
+
+        socket.onopen = () => {
+            console.log("WebSocket Connected");
+        };
+
+        socket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "state") {
+                updateUIState(msg.data);
+            } else if (msg.type === "log") {
+                appendLog(msg.data);
+            }
+        };
+
+        socket.onclose = () => {
+            console.log("WebSocket Disconnected. Reconnecting in 3s...");
+            setTimeout(connectWebSocket, 3000);
+        };
+    }
+
+    // Fetch System Serial Ports
+    async function loadPorts() {
+        try {
+            const res = await fetch("/api/ports");
+            const data = await res.json();
+            portSelect.innerHTML = "";
+
+            if (data.ports.length === 0) {
+                portSelect.innerHTML = `<option value="">No Ports Detected</option>`;
+            } else {
+                data.ports.forEach(p => {
+                    const opt = document.createElement("option");
+                    opt.value = p.device;
+                    opt.textContent = `${p.device} (${p.description})`;
+                    portSelect.appendChild(opt);
+                });
+            }
+        } catch (err) {
+            console.error("Failed to load ports:", err);
+        }
+    }
+
+    // Connect to Selected Port
+    connectBtn.addEventListener("click", async () => {
+        if (connectBtn.dataset.state === "connected") {
+            // Disconnect
+            await fetch("/api/disconnect", { method: "POST" });
+            return;
+        }
+
+        const port = portSelect.value;
+        const baudrate = parseInt(baudSelect.value);
+
+        if (!port) {
+            alert("Please select a serial port or use Demo Mode.");
+            return;
+        }
+
+        try {
+            const res = await fetch("/api/connect", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ port, baudrate })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(`Connection failed: ${data.detail}`);
+            }
+        } catch (err) {
+            alert(`Error connecting: ${err.message}`);
+        }
+    });
+
+    // Demo Mode Trigger
+    demoBtn.addEventListener("click", async () => {
+        try {
+            await fetch("/api/demo", { method: "POST" });
+        } catch (err) {
+            console.error("Error toggling demo mode:", err);
+        }
+    });
+
+    refreshPortsBtn.addEventListener("click", loadPorts);
+
+    // Update Dashboard UI with state object
+    function updateUIState(state) {
+        // Connection status badge
+        if (state.connected) {
+            if (state.mode === "DEMO") {
+                connectionStatus.className = "status-badge demo";
+                statusText.textContent = "Demo Mode";
+            } else {
+                connectionStatus.className = "status-badge connected";
+                statusText.textContent = `Connected (${state.port})`;
+            }
+            connectBtn.innerHTML = `<i class="fa-solid fa-unlink"></i> Disconnect`;
+            connectBtn.dataset.state = "connected";
+            connectBtn.className = "btn btn-outline";
+        } else {
+            connectionStatus.className = "status-badge disconnected";
+            statusText.textContent = "Disconnected";
+            connectBtn.innerHTML = `<i class="fa-solid fa-link"></i> Connect`;
+            connectBtn.dataset.state = "disconnected";
+            connectBtn.className = "btn btn-primary";
+        }
+
+        // Signal Metrics
+        const sig = state.signal;
+        rsrpVal.textContent = sig.rsrp;
+        rsrqVal.textContent = sig.rsrq;
+        rssiVal.textContent = sig.rssi;
+        csqVal.textContent = `(CSQ: ${sig.csq}/31)`;
+        sinrVal.textContent = sig.sinr;
+
+        // RSRP Bar Calculation (-140 to -50)
+        let rsrpPct = Math.max(0, Math.min(100, ((sig.rsrp + 140) / 90) * 100));
+        rsrpBar.style.width = `${rsrpPct}%`;
+
+        // Quality label badge
+        rsrpQuality.textContent = sig.quality_label;
+        rsrpQuality.className = `badge badge-${sig.quality_label.toLowerCase()}`;
+
+        // RSRQ Bar (-20 to 0)
+        let rsrqPct = Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100));
+        rsrqBar.style.width = `${rsrqPct}%`;
+
+        // RSSI Bar (-113 to -51)
+        let rssiPct = Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100));
+        rssiBar.style.width = `${rssiPct}%`;
+
+        // SINR Bar (-10 to 30)
+        let sinrPct = Math.max(0, Math.min(100, ((sig.sinr + 10) / 40) * 100));
+        sinrBar.style.width = `${sinrPct}%`;
+
+        // Serving Cell Details
+        const sc = state.serving_cell;
+        ratBadge.textContent = sc.rat || "NB-IoT";
+        operatorVal.textContent = sc.operator || "Unknown Carrier";
+        plmnVal.textContent = `${sc.mcc}-${sc.mnc}`;
+        cellIdVal.childNodes[0].nodeValue = `${sc.cell_id} `;
+        cellIdDec.textContent = `(${sc.cell_id_dec})`;
+        tacVal.childNodes[0].nodeValue = `${sc.tac} `;
+        tacDec.textContent = `(${sc.tac_dec})`;
+        pciVal.textContent = sc.pci;
+        bandVal.textContent = `EARFCN ${sc.earfcn} (Band ${sc.band})`;
+
+        // Neighbour Cells Table
+        const neighbours = state.neighbour_cells || [];
+        neighbourCount.textContent = `${neighbours.length} Detected`;
+        if (neighbours.length === 0) {
+            neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No neighbor cells detected</td></tr>`;
+        } else {
+            neighbourTableBody.innerHTML = neighbours.map(n => {
+                const delta = n.rsrp - sig.rsrp;
+                const relLabel = delta >= 0 ? `+${delta} dB` : `${delta} dB`;
+                const relClass = delta >= -6 ? "style='color:#10b981;font-weight:600;'" : "style='color:#8c9cb8;'";
+                return `
+                    <tr>
+                        <td><strong>${n.pci}</strong></td>
+                        <td>${n.earfcn}</td>
+                        <td>${n.rsrp} dBm</td>
+                        <td>${n.rsrq} dB</td>
+                        <td ${relClass}>${relLabel}</td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        // Network Scanner State
+        if (state.is_scanning) {
+            scanLoading.classList.remove("hidden");
+            scanBtn.disabled = true;
+        } else {
+            scanLoading.classList.add("hidden");
+            scanBtn.disabled = false;
+        }
+
+        if (state.networks_scan && state.networks_scan.length > 0) {
+            networksTableBody.innerHTML = state.networks_scan.map(net => {
+                let badgeClass = "badge-fair";
+                if (net.status === "Current") badgeClass = "badge-excellent";
+                else if (net.status === "Available") badgeClass = "badge-good";
+                else if (net.status === "Forbidden") badgeClass = "badge-poor";
+
+                return `
+                    <tr>
+                        <td><span class="badge ${badgeClass}">${net.status}</span></td>
+                        <td><strong>${net.long_name}</strong> (${net.short_name})</td>
+                        <td>${net.plmn}</td>
+                        <td>${net.act}</td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        // Push data to Live Trend Chart
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        if (chartData.labels.length >= 25) {
+            chartData.labels.shift();
+            chartData.rsrp.shift();
+            chartData.rsrq.shift();
+        }
+        chartData.labels.push(timeStr);
+        chartData.rsrp.push(sig.rsrp);
+        chartData.rsrq.push(sig.rsrq);
+
+        if (chart) {
+            chart.update();
+        }
+    }
+
+    // Network Scan Trigger
+    scanBtn.addEventListener("click", async () => {
+        try {
+            await fetch("/api/scan", { method: "POST" });
+        } catch (err) {
+            console.error("Scan error:", err);
+        }
+    });
+
+    // Console Logging
+    function appendLog(entry) {
+        const div = document.createElement("div");
+        div.className = `log-line log-${entry.direction.toLowerCase()}`;
+        div.innerHTML = `<span class="timestamp">[${entry.timestamp}]</span><span class="dir">[${entry.direction}]</span> ${escapeHtml(entry.text)}`;
+        logConsole.appendChild(div);
+        logConsole.scrollTop = logConsole.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // Quick Command Buttons & Custom Input
+    document.querySelectorAll(".cmd-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const cmd = btn.dataset.cmd;
+            sendATCommand(cmd);
+        });
+    });
+
+    sendAtBtn.addEventListener("click", () => {
+        const cmd = atInput.value.trim();
+        if (cmd) {
+            sendATCommand(cmd);
+            atInput.value = "";
+        }
+    });
+
+    atInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            const cmd = atInput.value.trim();
+            if (cmd) {
+                sendATCommand(cmd);
+                atInput.value = "";
+            }
+        }
+    });
+
+    clearLogBtn.addEventListener("click", () => {
+        logConsole.innerHTML = "";
+    });
+
+    async function sendATCommand(command) {
+        try {
+            await fetch("/api/send_at", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ command })
+            });
+        } catch (err) {
+            console.error("Error sending AT command:", err);
+        }
+    }
+
+    // Initialize
+    initChart();
+    loadPorts();
+    connectWebSocket();
+});
