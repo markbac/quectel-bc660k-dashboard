@@ -21,7 +21,7 @@
                 <i class="fa-solid fa-tower-cell brand-icon"></i>
                 <div class="brand-text">
                     <h1>Quectel BC660K-GL</h1>
-                    <span class="subtitle">LTE Cat NB2 Signal & Network Analyzer</span>
+                    <span class="subtitle">LTE Cat NB2 Telemetry, SIM & Network Analyzer</span>
                 </div>
             </div>
 
@@ -64,7 +64,7 @@
 
         <!-- Main Dashboard Content Grid -->
         <main class="dashboard-grid">
-            <!-- Row 1: Key Metrics Cards -->
+            <!-- Row 1: Key Signal Metrics Cards -->
             <section class="metrics-row">
                 <!-- RSRP Signal Card -->
                 <div class="card metric-card">
@@ -149,7 +149,69 @@
                 </div>
             </section>
 
-            <!-- Row 2: Chart & Serving Cell Info -->
+            <!-- Row 2: SIM Card Data, Hardware & Location Grid -->
+            <section class="hardware-row">
+                <!-- SIM Card Info -->
+                <div class="card sim-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-sim-card"></i> SIM Card Data</span>
+                        <span class="badge badge-good" id="simStatusBadge">READY</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">ICCID (SIM Serial)</span>
+                                <span class="info-val font-mono" id="iccidVal">8944110068214981729F</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">IMSI (Subscriber ID)</span>
+                                <span class="info-val font-mono" id="imsiVal">234159012345678</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">SIM State</span>
+                                <span class="info-val" id="simStateVal">READY (PIN Cleared)</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Network Assigned IP</span>
+                                <span class="info-val font-mono highlight" id="ipVal">10.142.88.204</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hardware & System Info -->
+                <div class="card system-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-microchip"></i> Board Diagnostics & Power</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">IMEI Serial Number</span>
+                                <span class="info-val font-mono" id="imeiVal">860492040182941</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Supply Voltage</span>
+                                <span class="info-val" id="voltageVal">3820 mV <small>(3.82 V)</small></span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Chipset Temperature</span>
+                                <span class="info-val" id="tempVal">28.5 °C</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Cell Location (Est.)</span>
+                                <span class="info-val" id="locVal">
+                                    <a href="https://www.openstreetmap.org/#map=13/51.5074/-0.1278" target="_blank" id="mapLink" class="map-link">
+                                        <i class="fa-solid fa-map-pin"></i> 51.5074, -0.1278
+                                    </a>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Row 3: Live Chart & Serving Cell Info -->
             <section class="middle-row">
                 <!-- Live Chart -->
                 <div class="card chart-card">
@@ -162,7 +224,7 @@
                     </div>
                 </div>
 
-                <!-- Serving Cell & Hardware Info -->
+                <!-- Serving Cell Info -->
                 <div class="card serving-cell-card">
                     <div class="card-header">
                         <span class="card-title"><i class="fa-solid fa-broadcast-tower"></i> Serving Cell Details</span>
@@ -199,7 +261,75 @@
                 </div>
             </section>
 
-            <!-- Row 3: Neighboring Cells & Network Scanner -->
+            <!-- Row 4: SQLite Historical Data Analytics -->
+            <section class="history-row">
+                <div class="card history-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-database"></i> SQLite Historical Telemetry & Analytics</span>
+                        <div class="history-actions">
+                            <span class="badge badge-primary" id="dbTotalRecords">0 Records</span>
+                            <a href="/api/history/export" target="_blank" class="btn btn-sm btn-outline">
+                                <i class="fa-solid fa-file-csv"></i> Export CSV
+                            </a>
+                            <button id="clearDbBtn" class="btn btn-sm btn-icon" title="Clear SQLite Database">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Stats Bar -->
+                        <div class="stats-summary-bar">
+                            <div class="stat-pill">
+                                <span class="stat-label">Min RSRP</span>
+                                <span class="stat-val text-danger" id="statMinRsrp">- dBm</span>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-label">Max RSRP</span>
+                                <span class="stat-val text-success" id="statMaxRsrp">- dBm</span>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-label">Avg RSRP</span>
+                                <span class="stat-val text-primary" id="statAvgRsrp">- dBm</span>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-label">Avg RSRQ</span>
+                                <span class="stat-val text-accent" id="statAvgRsrq">- dB</span>
+                            </div>
+                            <div class="stat-pill">
+                                <span class="stat-label">Unique Cell Towers</span>
+                                <span class="stat-val" id="statUniqueCells">0</span>
+                            </div>
+                        </div>
+
+                        <!-- Historical Table -->
+                        <div class="table-responsive history-table-wrapper">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>RSRP</th>
+                                        <th>RSRQ</th>
+                                        <th>RSSI</th>
+                                        <th>SINR</th>
+                                        <th>Quality</th>
+                                        <th>Carrier</th>
+                                        <th>Cell ID</th>
+                                        <th>Temp</th>
+                                        <th>Voltage</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody">
+                                    <tr>
+                                        <td colspan="10" class="empty-state">No historical telemetry records in SQLite database yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Row 5: Neighboring Cells & Network Scanner -->
             <section class="bottom-row">
                 <!-- Neighboring Cells Table -->
                 <div class="card neighbour-card">
@@ -259,7 +389,7 @@
                 </div>
             </section>
 
-            <!-- Row 4: Raw AT Terminal & Console -->
+            <!-- Row 6: Raw AT Terminal & Console -->
             <section class="terminal-row">
                 <div class="card terminal-card">
                     <div class="card-header">
@@ -268,6 +398,10 @@
                             <button class="cmd-btn" data-cmd="AT">AT</button>
                             <button class="cmd-btn" data-cmd="ATI">ATI</button>
                             <button class="cmd-btn" data-cmd="AT+CSQ">AT+CSQ</button>
+                            <button class="cmd-btn" data-cmd="AT+QCCID">AT+QCCID</button>
+                            <button class="cmd-btn" data-cmd="AT+CIMI">AT+CIMI</button>
+                            <button class="cmd-btn" data-cmd="AT+CBC">AT+CBC</button>
+                            <button class="cmd-btn" data-cmd="AT+QTEMP">AT+QTEMP</button>
                             <button class="cmd-btn" data-cmd='AT+QENG="servingcell"'>Serving Cell</button>
                             <button class="cmd-btn" data-cmd='AT+QENG="neighbourcell"'>Neighbours</button>
                             <button class="cmd-btn" data-cmd="AT+COPS?">COPS?</button>
@@ -281,7 +415,7 @@
                         </div>
                         <div class="terminal-input-bar">
                             <span class="prompt">AT></span>
-                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CSQ)..." autocomplete="off">
+                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+QCCID)..." autocomplete="off">
                             <button id="sendAtBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send</button>
                         </div>
                     </div>

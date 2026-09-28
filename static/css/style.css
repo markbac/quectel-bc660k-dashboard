@@ -172,7 +172,6 @@ select:focus {
     background: transparent;
     color: var(--text-muted);
     border: 1px solid var(--border-color);
-
 }
 
 .btn-icon:hover {
@@ -337,6 +336,35 @@ select:focus {
 .badge-poor { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
 .badge-primary { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
 
+/* Hardware Row (SIM & System) */
+.hardware-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+}
+
+@media (max-width: 1024px) {
+    .hardware-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.font-mono {
+    font-family: var(--font-mono);
+}
+
+.map-link {
+    color: var(--accent);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.map-link:hover {
+    text-decoration: underline;
+}
+
 /* Middle Row */
 .middle-row {
     display: grid;
@@ -399,7 +427,6 @@ select:focus {
     font-size: 0.92rem;
     font-weight: 600;
     color: var(--text-main);
-
     margin-top: 0.25rem;
 }
 
@@ -410,6 +437,50 @@ select:focus {
 .info-val small {
     color: var(--text-muted);
     font-weight: 400;
+}
+
+/* History Analytics Row */
+.history-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.stats-summary-bar {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.stat-pill {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-width: 120px;
+}
+
+.stat-label {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+
+.stat-val {
+    font-size: 1.1rem;
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.text-danger { color: var(--danger); }
+.text-success { color: var(--success); }
+.text-primary { color: var(--primary); }
+.text-accent { color: var(--accent); }
+
+.history-table-wrapper {
+    max-height: 220px;
 }
 
 /* Bottom Row */
@@ -436,7 +507,6 @@ select:focus {
 /* Tables */
 .table-responsive {
     overflow-x: auto;
-    max-height: 250px;
 }
 
 .data-table {

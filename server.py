@@ -1,11 +1,13 @@
 import os
 import asyncio
 import json
+import csv
+import io
 import webbrowser
-from typing import Dict, Any, List
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from typing import Dict, Any, List, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, Response
 from pydantic import BaseModel
 import uvicorn
 
@@ -74,20 +76,46 @@ def send_at(req: SendATRequest):
 def scan_networks():
     if not manager.is_connected:
         raise HTTPException(status_code=400, detail="Serial port not connected")
-    # Run scan in thread to avoid blocking server
     networks = manager.scan_networks()
     return {"status": "ok", "networks": networks}
+
+# --- SQLite History & Export Endpoints ---
+@app.get("/api/history")
+def get_history(limit: int = Query(200, ge=10, le=2000)):
+    history = manager.db.get_history(limit=limit)
+    stats = manager.db.get_stats()
+    return {"history": history, "stats": stats}
+
+@app.get("/api/history/export")
+def export_csv():
+    records = manager.db.get_history(limit=5000)
+    if not records:
+        return Response(content="No data logged yet", media_type="text/plain")
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=records[0].keys())
+    writer.writeheader()
+    writer.writerows(records)
+
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=quectel_signal_history.csv"}
+    )
+
+@app.post("/api/history/clear")
+def clear_history():
+    manager.db.clear_history()
+    return {"status": "ok", "stats": manager.db.get_stats()}
 
 # --- WebSocket Endpoint ---
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
-    # Send initial state on connection
     await websocket.send_text(json.dumps({"type": "state", "data": manager.state}))
     try:
         while True:
-            # Wait for client messages if any
             data = await websocket.receive_text()
             msg = json.loads(data)
             if msg.get("action") == "ping":
@@ -121,8 +149,7 @@ if __name__ == "__main__":
     print(f"\n=======================================================")
     print(f"Quectel BC660K Web Dashboard running at: {url}")
     print(f"=======================================================\n")
-    
-    # Auto-open browser
+
     try:
         webbrowser.open(url)
     except Exception:

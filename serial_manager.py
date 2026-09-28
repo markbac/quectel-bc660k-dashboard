@@ -6,6 +6,7 @@ import logging
 from typing import Dict, Any, List, Optional
 import serial
 import serial.tools.list_ports
+from db_manager import DBManager
 
 logger = logging.getLogger("SerialManager")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -21,6 +22,7 @@ class SerialManager:
         self.poll_thread: Optional[threading.Thread] = None
         self.running: bool = False
         self.callbacks = []
+        self.db = DBManager()
 
         # Current state cache
         self.state = {
@@ -51,6 +53,25 @@ class SerialManager:
                 "tac": "5F4E",
                 "tac_dec": 24398
             },
+            "sim_info": {
+                "iccid": "8944110068214981729F",
+                "imsi": "234159012345678",
+                "sim_status": "READY",
+                "number": "Unknown / Network Assigned"
+            },
+            "system_info": {
+                "imei": "860492040182941",
+                "ip_address": "10.142.88.204",
+                "voltage": 3820,  # mV
+                "temperature": 28.5,  # Celsius
+                "firmware": "BC660KGLAAR01A03"
+            },
+            "location": {
+                "lat": 51.5074,
+                "lon": -0.1278,
+                "accuracy": 450, # meters
+                "source": "Cell Tower Geolocation"
+            },
             "neighbour_cells": [
                 {"pci": 142, "earfcn": 6300, "rsrp": -104, "rsrq": -14},
                 {"pci": 289, "earfcn": 6300, "rsrp": -112, "rsrq": -16},
@@ -76,7 +97,7 @@ class SerialManager:
     def log(self, text: str, direction: str = "INFO"):
         entry = {
             "timestamp": time.strftime("%H:%M:%S"),
-            "direction": direction,  # "TX", "RX", "INFO", "ERROR"
+            "direction": direction,
             "text": text
         }
         self.state["logs"].append(entry)
@@ -86,7 +107,6 @@ class SerialManager:
 
     @staticmethod
     def get_ports() -> List[Dict[str, str]]:
-        """List all system COM ports."""
         ports = serial.tools.list_ports.comports()
         result = []
         for p in ports:
@@ -112,16 +132,13 @@ class SerialManager:
                 self.state["mode"] = "REAL"
                 self.running = True
                 self.log(f"Connected to {port} @ {baudrate} baud", "INFO")
-                
-                # Test connection
+
                 resp = self._send_at_cmd_raw("AT\r\n")
                 if "OK" in resp:
                     self.log("Module responded to AT command successfully", "INFO")
-                
-                # Query basic info
+
                 self._poll_hardware_info()
 
-                # Start background polling
                 self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
                 self.poll_thread.start()
                 self._notify("state", self.state)
@@ -132,7 +149,6 @@ class SerialManager:
                 return False
 
     def enable_demo_mode(self):
-        """Enable simulated demo mode for testing UI without physical board."""
         self.disconnect()
         with self.lock:
             self.is_connected = True
@@ -153,7 +169,7 @@ class SerialManager:
         self.running = False
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=1.0)
-        
+
         with self.lock:
             if self.ser and self.ser.is_open:
                 try:
@@ -171,12 +187,12 @@ class SerialManager:
     def _send_at_cmd_raw(self, cmd: str) -> str:
         if not self.ser or not self.ser.is_open:
             return "ERROR: Port not open"
-        
+
         if not cmd.endswith("\r\n"):
             cmd_str = cmd + "\r\n"
         else:
             cmd_str = cmd
-            
+
         self.log(cmd.strip(), "TX")
         try:
             self.ser.write(cmd_str.encode("utf-8", errors="ignore"))
@@ -197,24 +213,22 @@ class SerialManager:
             return f"ERROR: {e}"
 
     def send_at_command(self, cmd: str) -> str:
-        """User-triggered manual AT command."""
         if self.is_demo:
             self.log(cmd.strip(), "TX")
             resp = self._simulated_at_response(cmd.strip())
             self.log(resp.strip(), "RX")
             return resp
-        
+
         with self.lock:
             return self._send_at_cmd_raw(cmd)
 
     def scan_networks(self) -> List[Dict[str, Any]]:
-        """Run network scan (AT+COPS=?)."""
         self.state["is_scanning"] = True
         self._notify("state", self.state)
         self.log("Starting network scan (AT+COPS=?... this may take up to 30s)", "INFO")
 
         if self.is_demo:
-            time.sleep(3.0)  # Simulate scan delay
+            time.sleep(3.0)
             scanned = [
                 {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "LTE Cat NB2"},
                 {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "LTE Cat NB2"},
@@ -237,13 +251,43 @@ class SerialManager:
             return scanned
 
     def _poll_hardware_info(self):
-        """Query ATI, AT+GMR, etc."""
+        """Query SIM data, device info, voltage, temperature."""
         self._send_at_cmd_raw("ATI")
         self._send_at_cmd_raw("AT+GMR")
-        self._send_at_cmd_raw("AT+CEREG=2")  # Enable location info in CEREG
+        self._send_at_cmd_raw("AT+CEREG=2")
+        
+        # SIM Info
+        cpin_resp = self._send_at_cmd_raw("AT+CPIN?")
+        self._parse_cpin(cpin_resp)
+
+        iccid_resp = self._send_at_cmd_raw("AT+QCCID")
+        if "ERROR" in iccid_resp:
+            iccid_resp = self._send_at_cmd_raw("AT+NCCID")
+        self._parse_iccid(iccid_resp)
+
+        imsi_resp = self._send_at_cmd_raw("AT+CIMI")
+        self._parse_imsi(imsi_resp)
+
+        # Device Info
+        imei_resp = self._send_at_cmd_raw("AT+GSN=1")
+        if "ERROR" in imei_resp:
+            imei_resp = self._send_at_cmd_raw("AT+CGSN=1")
+        self._parse_imei(imei_resp)
+
+        # Battery / Voltage
+        cbc_resp = self._send_at_cmd_raw("AT+CBC")
+        self._parse_cbc(cbc_resp)
+
+        # Temperature
+        temp_resp = self._send_at_cmd_raw("AT+QTEMP")
+        self._parse_qtemp(temp_resp)
+
+        # IP Address
+        ip_resp = self._send_at_cmd_raw("AT+CGPADDR=1")
+        self._parse_ip(ip_resp)
 
     def _poll_loop(self):
-        """Background thread to poll signal and cell info periodically."""
+        last_db_log = 0
         while self.running and self.is_connected and not self.is_demo:
             try:
                 with self.lock:
@@ -259,20 +303,32 @@ class SerialManager:
                     cops_resp = self._send_at_cmd_raw("AT+COPS?")
                     self._parse_cops_query(cops_resp)
 
+                    # Poll temperature and voltage periodically
+                    temp_resp = self._send_at_cmd_raw("AT+QTEMP")
+                    self._parse_qtemp(temp_resp)
+                    
+                    cbc_resp = self._send_at_cmd_raw("AT+CBC")
+                    self._parse_cbc(cbc_resp)
+
                 self.state["last_update"] = time.time()
+                
+                # Log to SQLite every 5 seconds
+                if time.time() - last_db_log >= 5.0:
+                    self.db.log_record(self.state)
+                    last_db_log = time.time()
+
                 self._notify("state", self.state)
             except Exception as e:
                 logger.error(f"Error in poll loop: {e}")
             time.sleep(3.0)
 
     def _demo_loop(self):
-        """Simulate realistic signal noise, small handovers, and metrics."""
         base_rsrp = -95
         base_rsrq = -11
         base_sinr = 14
+        last_db_log = 0
 
         while self.running and self.is_demo:
-            # Add slight realistic noise
             rsrp_noise = random.randint(-4, 4)
             rsrq_noise = random.randint(-2, 2)
             sinr_noise = random.randint(-3, 3)
@@ -281,8 +337,6 @@ class SerialManager:
             current_rsrq = max(-20, min(-3, base_rsrq + rsrq_noise))
             current_sinr = max(-10, min(30, base_sinr + sinr_noise))
 
-            # Calculate CSQ based on RSRP
-            # RSRP -113 dBm -> CSQ 0, RSRP -51 dBm -> CSQ 31
             csq = max(0, min(31, int((current_rsrp + 113) / 2)))
             rssi = -113 + (csq * 2)
 
@@ -298,7 +352,9 @@ class SerialManager:
                 "quality_label": label
             }
 
-            # Occasionally update neighbor signal slightly
+            self.state["system_info"]["voltage"] = 3800 + random.randint(-20, 20)
+            self.state["system_info"]["temperature"] = round(28.0 + random.uniform(-0.5, 0.5), 1)
+
             self.state["neighbour_cells"] = [
                 {"pci": 142, "earfcn": 6300, "rsrp": current_rsrp - random.randint(6, 12), "rsrq": current_rsrq - random.randint(2, 4)},
                 {"pci": 289, "earfcn": 6300, "rsrp": current_rsrp - random.randint(14, 20), "rsrq": current_rsrq - random.randint(4, 6)},
@@ -306,11 +362,16 @@ class SerialManager:
             ]
 
             self.state["last_update"] = time.time()
+
+            # Log to SQLite every 4 seconds in demo mode
+            if time.time() - last_db_log >= 4.0:
+                self.db.log_record(self.state)
+                last_db_log = time.time()
+
             self._notify("state", self.state)
             time.sleep(2.0)
 
-    # --- AT Response Parsers ---
-
+    # --- Parsers ---
     def _parse_csq(self, resp: str):
         match = re.search(r"\+CSQ:\s*(\d+),(\d+)", resp)
         if match:
@@ -322,21 +383,53 @@ class SerialManager:
                 self.state["signal"]["rssi"] = rssi
                 self.state["signal"]["ber"] = ber
 
+    def _parse_cpin(self, resp: str):
+        match = re.search(r"\+CPIN:\s*(\w+)", resp)
+        if match:
+            self.state["sim_info"]["sim_status"] = match.group(1)
+
+    def _parse_iccid(self, resp: str):
+        match = re.search(r"(?:89\d{16,18}\w?)", resp)
+        if match:
+            self.state["sim_info"]["iccid"] = match.group(0)
+
+    def _parse_imsi(self, resp: str):
+        match = re.search(r"(\d{15})", resp)
+        if match:
+            self.state["sim_info"]["imsi"] = match.group(1)
+
+    def _parse_imei(self, resp: str):
+        match = re.search(r"(\d{15})", resp)
+        if match:
+            self.state["system_info"]["imei"] = match.group(1)
+
+    def _parse_cbc(self, resp: str):
+        # +CBC: 0,100,3825
+        match = re.search(r"\+CBC:\s*\d+,\d+,(\d+)", resp)
+        if match:
+            self.state["system_info"]["voltage"] = int(match.group(1))
+
+    def _parse_qtemp(self, resp: str):
+        # +QTEMP: 28.5
+        match = re.search(r"\+QTEMP:\s*(-?\d+(?:\.\d+)?)", resp)
+        if match:
+            self.state["system_info"]["temperature"] = float(match.group(1))
+
+    def _parse_ip(self, resp: str):
+        # +CGPADDR: 1,"10.142.88.204"
+        match = re.search(r'\+CGPADDR:\s*\d+,"([^"]+)"', resp)
+        if match:
+            self.state["system_info"]["ip_address"] = match.group(1)
+
     def _parse_qeng_serving(self, resp: str):
-        """
-        Parses Quectel BC660K AT+QENG="servingcell"
-        Example output:
-        +QENG: "servingcell","NOCONN","NB-IoT","FDD",234,15,1D2F401,320,6300,8,0,0,5F4E,-102,-11,-91,12
-        """
         match = re.search(r'\+QENG:\s*"servingcell","([^"]+)","([^"]+)","([^"]+)",(\d+),(\d+),([0-9A-Fa-f]+),(\d+),(\d+),(\d+),.*?([0-9A-Fa-f]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
         if match:
             cell_state, rat, duplex, mcc, mnc, cell_id_hex, pci, earfcn, band, tac_hex, rsrp, rsrq, rssi, sinr = match.groups()
-            
             try:
                 cell_id_dec = int(cell_id_hex, 16)
             except ValueError:
                 cell_id_dec = 0
-                
+
             try:
                 tac_dec = int(tac_hex, 16)
             except ValueError:
@@ -370,12 +463,6 @@ class SerialManager:
             })
 
     def _parse_qeng_neighbour(self, resp: str):
-        """
-        Parses Quectel BC660K AT+QENG="neighbourcell"
-        Example output:
-        +QENG: "neighbourcell","NB-IoT",6300,142,-108,-14
-        +QENG: "neighbourcell","NB-IoT",6300,289,-114,-16
-        """
         neighbours = []
         matches = re.findall(r'\+QENG:\s*"neighbourcell","([^"]+)",(\d+),(\d+),(-?\d+),(-?\d+)', resp)
         for m in matches:
@@ -395,10 +482,6 @@ class SerialManager:
             self.state["serving_cell"]["operator"] = match.group(1)
 
     def _parse_cops_scan(self, resp: str) -> List[Dict[str, Any]]:
-        """
-        Parse AT+COPS=? response.
-        Example: +COPS: (2,"Vodafone UK","voda UK","23415",9),(1,"EE","EE","23430",9),...
-        """
         status_map = {0: "Unknown", 1: "Available", 2: "Current", 3: "Forbidden"}
         act_map = {0: "GSM", 2: "UTRAN (3G)", 7: "LTE Cat M1", 9: "LTE Cat NB2"}
 
@@ -432,6 +515,20 @@ class SerialManager:
         elif c == "AT+CSQ":
             s = self.state["signal"]
             return f"+CSQ: {s['csq']},0\r\n\r\nOK\r\n"
+        elif c == "AT+CPIN?":
+            return "+CPIN: READY\r\n\r\nOK\r\n"
+        elif c == "AT+QCCID" or c == "AT+NCCID":
+            return f'+QCCID: {self.state["sim_info"]["iccid"]}\r\n\r\nOK\r\n'
+        elif c == "AT+CIMI":
+            return f'{self.state["sim_info"]["imsi"]}\r\n\r\nOK\r\n'
+        elif c == "AT+GSN=1" or c == "AT+CGSN=1":
+            return f'+GSN: {self.state["system_info"]["imei"]}\r\n\r\nOK\r\n'
+        elif c == "AT+CBC":
+            return f'+CBC: 0,100,{self.state["system_info"]["voltage"]}\r\n\r\nOK\r\n'
+        elif c == "AT+QTEMP":
+            return f'+QTEMP: {self.state["system_info"]["temperature"]}\r\n\r\nOK\r\n'
+        elif c == "AT+CGPADDR=1":
+            return f'+CGPADDR: 1,"{self.state["system_info"]["ip_address"]}"\r\n\r\nOK\r\n'
         elif "AT+QENG=\"SERVINGCELL\"" in c:
             sc = self.state["serving_cell"]
             sig = self.state["signal"]

@@ -23,6 +23,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const sinrVal = document.getElementById("sinrVal");
     const sinrBar = document.getElementById("sinrBar");
 
+    // SIM & Hardware Elements
+    const iccidVal = document.getElementById("iccidVal");
+    const imsiVal = document.getElementById("imsiVal");
+    const simStateVal = document.getElementById("simStateVal");
+    const simStatusBadge = document.getElementById("simStatusBadge");
+    const ipVal = document.getElementById("ipVal");
+
+    const imeiVal = document.getElementById("imeiVal");
+    const voltageVal = document.getElementById("voltageVal");
+    const tempVal = document.getElementById("tempVal");
+    const mapLink = document.getElementById("mapLink");
+
     // Serving Cell
     const ratBadge = document.getElementById("ratBadge");
     const operatorVal = document.getElementById("operatorVal");
@@ -33,6 +45,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const tacDec = document.getElementById("tacDec");
     const pciVal = document.getElementById("pciVal");
     const bandVal = document.getElementById("bandVal");
+
+    // SQLite History Elements
+    const dbTotalRecords = document.getElementById("dbTotalRecords");
+    const statMinRsrp = document.getElementById("statMinRsrp");
+    const statMaxRsrp = document.getElementById("statMaxRsrp");
+    const statAvgRsrp = document.getElementById("statAvgRsrp");
+    const statAvgRsrq = document.getElementById("statAvgRsrq");
+    const statUniqueCells = document.getElementById("statUniqueCells");
+    const historyTableBody = document.getElementById("historyTableBody");
+    const clearDbBtn = document.getElementById("clearDbBtn");
 
     // Tables
     const neighbourTableBody = document.getElementById("neighbourTableBody");
@@ -170,10 +192,58 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Fetch SQLite History & Stats
+    async function loadHistory() {
+        try {
+            const res = await fetch("/api/history?limit=100");
+            const data = await res.json();
+            
+            // Render Stats
+            const stats = data.stats;
+            dbTotalRecords.textContent = `${stats.total_records} Records`;
+            statMinRsrp.textContent = stats.total_records > 0 ? `${stats.min_rsrp} dBm` : "- dBm";
+            statMaxRsrp.textContent = stats.total_records > 0 ? `${stats.max_rsrp} dBm` : "- dBm";
+            statAvgRsrp.textContent = stats.total_records > 0 ? `${stats.avg_rsrp} dBm` : "- dBm";
+            statAvgRsrq.textContent = stats.total_records > 0 ? `${stats.avg_rsrq} dB` : "- dB";
+            statUniqueCells.textContent = stats.total_cells || 0;
+
+            // Render History Table
+            const history = data.history || [];
+            if (history.length === 0) {
+                historyTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No historical telemetry records in SQLite database yet.</td></tr>`;
+            } else {
+                // Show newest first
+                const rev = [...history].reverse();
+                historyTableBody.innerHTML = rev.slice(0, 50).map(row => `
+                    <tr>
+                        <td><small>${row.timestamp}</small></td>
+                        <td><strong>${row.rsrp} dBm</strong></td>
+                        <td>${row.rsrq} dB</td>
+                        <td>${row.rssi} dBm</td>
+                        <td>${row.sinr} dB</td>
+                        <td><span class="badge badge-${(row.quality_label||'good').toLowerCase()}">${row.quality_label}</span></td>
+                        <td>${row.operator || '-'}</td>
+                        <td><code>${row.cell_id}</code></td>
+                        <td>${row.temperature}°C</td>
+                        <td>${row.voltage} mV</td>
+                    </tr>
+                `).join("");
+            }
+        } catch (err) {
+            console.error("Error loading SQLite history:", err);
+        }
+    }
+
+    clearDbBtn.addEventListener("click", async () => {
+        if (confirm("Are you sure you want to clear all SQLite historical signal logs?")) {
+            await fetch("/api/history/clear", { method: "POST" });
+            loadHistory();
+        }
+    });
+
     // Connect to Selected Port
     connectBtn.addEventListener("click", async () => {
         if (connectBtn.dataset.state === "connected") {
-            // Disconnect
             await fetch("/api/disconnect", { method: "POST" });
             return;
         }
@@ -214,7 +284,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update Dashboard UI with state object
     function updateUIState(state) {
-        // Connection status badge
         if (state.connected) {
             if (state.mode === "DEMO") {
                 connectionStatus.className = "status-badge demo";
@@ -242,25 +311,38 @@ document.addEventListener("DOMContentLoaded", () => {
         csqVal.textContent = `(CSQ: ${sig.csq}/31)`;
         sinrVal.textContent = sig.sinr;
 
-        // RSRP Bar Calculation (-140 to -50)
         let rsrpPct = Math.max(0, Math.min(100, ((sig.rsrp + 140) / 90) * 100));
         rsrpBar.style.width = `${rsrpPct}%`;
 
-        // Quality label badge
         rsrpQuality.textContent = sig.quality_label;
         rsrpQuality.className = `badge badge-${sig.quality_label.toLowerCase()}`;
 
-        // RSRQ Bar (-20 to 0)
         let rsrqPct = Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100));
         rsrqBar.style.width = `${rsrqPct}%`;
 
-        // RSSI Bar (-113 to -51)
         let rssiPct = Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100));
         rssiBar.style.width = `${rssiPct}%`;
 
-        // SINR Bar (-10 to 30)
         let sinrPct = Math.max(0, Math.min(100, ((sig.sinr + 10) / 40) * 100));
         sinrBar.style.width = `${sinrPct}%`;
+
+        // SIM Card Info
+        const sim = state.sim_info || {};
+        iccidVal.textContent = sim.iccid || "N/A";
+        imsiVal.textContent = sim.imsi || "N/A";
+        simStateVal.textContent = sim.sim_status || "UNKNOWN";
+        simStatusBadge.textContent = sim.sim_status || "UNKNOWN";
+
+        // System & Power Diagnostics
+        const sys = state.system_info || {};
+        imeiVal.textContent = sys.imei || "N/A";
+        ipVal.textContent = sys.ip_address || "Not Connected";
+        voltageVal.innerHTML = `${sys.voltage || 0} mV <small>(${((sys.voltage || 0)/1000).toFixed(2)} V)</small>`;
+        tempVal.textContent = `${sys.temperature || 0} °C`;
+
+        const loc = state.location || { lat: 51.5074, lon: -0.1278 };
+        mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
+        mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${loc.lat}, ${loc.lon}`;
 
         // Serving Cell Details
         const sc = state.serving_cell;
@@ -296,33 +378,6 @@ document.addEventListener("DOMContentLoaded", () => {
             }).join("");
         }
 
-        // Network Scanner State
-        if (state.is_scanning) {
-            scanLoading.classList.remove("hidden");
-            scanBtn.disabled = true;
-        } else {
-            scanLoading.classList.add("hidden");
-            scanBtn.disabled = false;
-        }
-
-        if (state.networks_scan && state.networks_scan.length > 0) {
-            networksTableBody.innerHTML = state.networks_scan.map(net => {
-                let badgeClass = "badge-fair";
-                if (net.status === "Current") badgeClass = "badge-excellent";
-                else if (net.status === "Available") badgeClass = "badge-good";
-                else if (net.status === "Forbidden") badgeClass = "badge-poor";
-
-                return `
-                    <tr>
-                        <td><span class="badge ${badgeClass}">${net.status}</span></td>
-                        <td><strong>${net.long_name}</strong> (${net.short_name})</td>
-                        <td>${net.plmn}</td>
-                        <td>${net.act}</td>
-                    </tr>
-                `;
-            }).join("");
-        }
-
         // Push data to Live Trend Chart
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         if (chartData.labels.length >= 25) {
@@ -337,6 +392,9 @@ document.addEventListener("DOMContentLoaded", () => {
         if (chart) {
             chart.update();
         }
+
+        // Refresh SQLite history view periodically
+        loadHistory();
     }
 
     // Network Scan Trigger
@@ -406,5 +464,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // Initialize
     initChart();
     loadPorts();
+    loadHistory();
     connectWebSocket();
 });
