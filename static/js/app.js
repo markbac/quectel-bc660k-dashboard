@@ -8,6 +8,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const statusText = document.getElementById("statusText");
     const connectivityStatusVal = document.getElementById("connectivityStatusVal");
 
+    const telemetryIntervalSelect = document.getElementById("telemetryIntervalSelect");
+    const copsIntervalSelect = document.getElementById("copsIntervalSelect");
+
     // Metrics
     const rsrpVal = document.getElementById("rsrpVal");
     const rsrpBar = document.getElementById("rsrpBar");
@@ -186,6 +189,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     const opt = document.createElement("option");
                     opt.value = p.device;
                     opt.textContent = `${p.device} (${p.description})`;
+                    if (p.device === "COM3") opt.selected = true;
                     portSelect.appendChild(opt);
                 });
             }
@@ -234,13 +238,36 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     clearDbBtn.addEventListener("click", async () => {
-        if (confirm("Are you sure you want to clear all SQLite historical signal logs?")) {
+        if (confirm("Clear SQLite database and start fresh with a clean telemetry history?")) {
             await fetch("/api/history/clear", { method: "POST" });
+            chartData.labels = [];
+            chartData.rsrp = [];
+            chartData.rsrq = [];
+            if (chart) chart.update();
             loadHistory();
         }
     });
 
-    // Toggle Disk File Logging
+    // Interval Settings Handlers
+    async function updateIntervalSettings() {
+        const telemetry_interval = parseInt(telemetryIntervalSelect.value);
+        const cops_scan_interval = parseInt(copsIntervalSelect.value);
+
+        try {
+            await fetch("/api/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ telemetry_interval, cops_scan_interval })
+            });
+        } catch (err) {
+            console.error("Error updating intervals:", err);
+        }
+    }
+
+    telemetryIntervalSelect.addEventListener("change", updateIntervalSettings);
+    copsIntervalSelect.addEventListener("change", updateIntervalSettings);
+
+    // Toggle Py-LogKit Disk Logging
     if (toggleFileLogBtn) {
         toggleFileLogBtn.addEventListener("click", async () => {
             const targetState = !fileLoggingEnabled;
@@ -262,10 +289,10 @@ document.addEventListener("DOMContentLoaded", () => {
     function updateFileLogButtonUI(enabled) {
         if (enabled) {
             toggleFileLogBtn.className = "btn btn-sm btn-secondary";
-            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-lines"></i> Disk Log: ON`;
+            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-lines"></i> Py-LogKit: ON`;
         } else {
             toggleFileLogBtn.className = "btn btn-sm btn-outline";
-            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-excel"></i> Disk Log: OFF`;
+            toggleFileLogBtn.innerHTML = `<i class="fa-solid fa-file-excel"></i> Py-LogKit: OFF`;
         }
     }
 
@@ -299,7 +326,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Web Exit / Server Shutdown Trigger
+    // Web Exit Trigger
     const exitBtn = document.getElementById("exitBtn");
     if (exitBtn) {
         exitBtn.addEventListener("click", async () => {
@@ -344,14 +371,15 @@ document.addEventListener("DOMContentLoaded", () => {
             connectBtn.className = "btn btn-primary";
         }
 
-        // Connectivity Diagnostic Subbar
         connectivityStatusVal.textContent = state.connectivity_status || "Disconnected";
 
-        // File logging state update
         if (typeof state.file_logging_enabled === "boolean") {
             fileLoggingEnabled = state.file_logging_enabled;
             updateFileLogButtonUI(fileLoggingEnabled);
         }
+
+        if (state.telemetry_interval) telemetryIntervalSelect.value = state.telemetry_interval;
+        if (typeof state.cops_scan_interval === "number") copsIntervalSelect.value = state.cops_scan_interval;
 
         // Signal Metrics
         const sig = state.signal;
@@ -383,12 +411,12 @@ document.addEventListener("DOMContentLoaded", () => {
         simStateVal.textContent = sim.sim_status || "UNKNOWN";
         simStatusBadge.textContent = sim.sim_status || "UNKNOWN";
 
-        // System & Power Diagnostics
+        // System Diagnostics
         const sys = state.system_info || {};
         imeiVal.textContent = sys.imei || "N/A";
         ipVal.textContent = sys.ip_address || "Not Connected";
         voltageVal.innerHTML = `${sys.voltage || 0} mV <small>(${((sys.voltage || 0)/1000).toFixed(2)} V)</small>`;
-        tempVal.textContent = `${sys.temperature || 0} °C`;
+        tempVal.textContent = sys.firmware || "BC660KGLAAR01A05";
 
         const loc = state.location || { lat: 51.5074, lon: -0.1278 };
         mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
@@ -397,7 +425,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Serving Cell Details
         const sc = state.serving_cell;
         ratBadge.textContent = sc.rat || "NB-IoT";
-        operatorVal.textContent = sc.operator || "Unknown Carrier";
+        operatorVal.textContent = sc.operator || "Searching...";
         plmnVal.textContent = `${sc.mcc}-${sc.mnc}`;
         cellIdVal.childNodes[0].nodeValue = `${sc.cell_id} `;
         cellIdDec.textContent = `(${sc.cell_id_dec})`;
@@ -410,7 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const neighbours = state.neighbour_cells || [];
         neighbourCount.textContent = `${neighbours.length} Detected`;
         if (neighbours.length === 0) {
-            neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No neighbor cells detected</td></tr>`;
+            neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No neighbor cells detected yet</td></tr>`;
         } else {
             neighbourTableBody.innerHTML = neighbours.map(n => {
                 const delta = n.rsrp - sig.rsrp;
@@ -423,6 +451,33 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${n.rsrp} dBm</td>
                         <td>${n.rsrq} dB</td>
                         <td ${relClass}>${relLabel}</td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        // Spectrum Scanner State
+        if (state.is_scanning) {
+            scanLoading.classList.remove("hidden");
+            scanBtn.disabled = true;
+        } else {
+            scanLoading.classList.add("hidden");
+            scanBtn.disabled = false;
+        }
+
+        if (state.networks_scan && state.networks_scan.length > 0) {
+            networksTableBody.innerHTML = state.networks_scan.map(net => {
+                let badgeClass = "badge-fair";
+                if (net.status === "Current") badgeClass = "badge-excellent";
+                else if (net.status === "Available") badgeClass = "badge-good";
+                else if (net.status === "Forbidden") badgeClass = "badge-poor";
+
+                return `
+                    <tr>
+                        <td><span class="badge ${badgeClass}">${net.status}</span></td>
+                        <td><strong>${net.long_name}</strong> (${net.short_name})</td>
+                        <td>${net.plmn}</td>
+                        <td>${net.act}</td>
                     </tr>
                 `;
             }).join("");

@@ -17,12 +17,13 @@ from pydantic import BaseModel
 import uvicorn
 
 from serial_manager import SerialManager
+from pylogkit import setup_logging
 
 # Parse Command Line Arguments
 parser = argparse.ArgumentParser(description="Quectel BC660K Signal & Network Web Dashboard")
-parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode (no COM port required)")
-parser.add_argument("--port", "-p", type=str, default=None, help="Initial COM port to connect on startup (e.g. COM3)")
-parser.add_argument("--baud", "-b", type=int, default=9600, help="Initial baud rate (default: 9600)")
+parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode")
+parser.add_argument("--port", "-p", type=str, default="COM3", help="Initial COM port to connect on startup (default: COM3)")
+parser.add_argument("--baud", "-b", type=int, default=115200, help="Initial baud rate (default: 115200)")
 parser.add_argument("--no-file-log", action="store_true", help="Disable writing serial logs to disk file")
 args, _ = parser.parse_known_args()
 
@@ -47,13 +48,17 @@ manager.register_callback(broadcast)
 # --- Pydantic Models ---
 class ConnectRequest(BaseModel):
     port: str
-    baudrate: int = 9600
+    baudrate: int = 115200
 
 class SendATRequest(BaseModel):
     command: str
 
 class FileLogToggleRequest(BaseModel):
     enabled: bool
+
+class SettingsRequest(BaseModel):
+    telemetry_interval: Optional[int] = None
+    cops_scan_interval: Optional[int] = None
 
 # --- REST Endpoints ---
 @app.get("/api/ports")
@@ -76,9 +81,13 @@ def disconnect_port():
     manager.disconnect()
     return {"status": "ok", "state": manager.state}
 
+@app.post("/api/settings")
+def update_settings(req: SettingsRequest):
+    manager.update_settings(req.telemetry_interval, req.cops_scan_interval)
+    return {"status": "ok", "state": manager.state}
+
 @app.post("/api/file_logging")
 def toggle_file_logging(req: FileLogToggleRequest):
-    """Toggle writing diagnostic log entries to disk file."""
     manager.set_file_logging(req.enabled)
     return {"status": "ok", "file_logging_enabled": manager.file_logging_enabled}
 
@@ -93,8 +102,8 @@ def send_at(req: SendATRequest):
 def scan_networks():
     if not manager.is_connected:
         raise HTTPException(status_code=400, detail="Serial port not connected")
-    networks = manager.scan_networks()
-    return {"status": "ok", "networks": networks}
+    manager.trigger_async_cops_scan()
+    return {"status": "ok", "message": "Async network scan triggered"}
 
 # --- SQLite History & Export Endpoints ---
 @app.get("/api/history")
@@ -128,7 +137,6 @@ def clear_history():
 # --- Shutdown Endpoint ---
 @app.post("/api/shutdown")
 def shutdown_server():
-    """Cleanly disconnect serial port and terminate server process."""
     print("\n[SYSTEM] Exit requested via Web UI. Shutting down cleanly...")
     manager.disconnect()
 
@@ -172,7 +180,6 @@ def read_index():
         return FileResponse(index_path)
     return HTMLResponse("<h1>Dashboard HTML loading...</h1>")
 
-# Signal Handlers for Ctrl+C / Ctrl+X / SIGINT / SIGTERM
 def setup_signal_handlers():
     def handle_signal(sig, frame):
         print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Shutting down...")
@@ -188,12 +195,11 @@ def setup_signal_handlers():
 if __name__ == "__main__":
     setup_signal_handlers()
 
-    # Handle CLI startup flags
     if args.demo:
         print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
         manager.enable_demo_mode()
     elif args.port:
-        print(f"[STARTUP] Initial COM port specified: {args.port} @ {args.baud} baud")
+        print(f"[STARTUP] Connecting to serial port {args.port} @ {args.baud} baud...")
         manager.connect(args.port, args.baud)
 
     loop = asyncio.new_event_loop()
@@ -203,8 +209,9 @@ if __name__ == "__main__":
     url = f"http://localhost:{port_num}"
     print(f"\n=======================================================")
     print(f"Quectel BC660K Web Dashboard running at: {url}")
-    print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE (Select COM Port)'}")
-    print(f"File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
+    print(f"Baud Rate: {args.baud}")
+    print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
+    print(f"Py-LogKit File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
     print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
     print(f"=======================================================\n")
 

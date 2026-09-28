@@ -40,8 +40,8 @@
                 <div class="control-group">
                     <label for="baudSelect"><i class="fa-solid fa-gauge-high"></i> Baud:</label>
                     <select id="baudSelect">
-                        <option value="9600" selected>9600 (Default)</option>
-                        <option value="115200">115200</option>
+                        <option value="115200" selected>115200 (Default)</option>
+                        <option value="9600">9600</option>
                         <option value="57600">57600</option>
                         <option value="19200">19200</option>
                     </select>
@@ -64,10 +64,36 @@
 
         <!-- Main Dashboard Content Grid -->
         <main class="dashboard-grid">
-            <!-- Connectivity Diagnostic Subheader -->
+            <!-- Connectivity & Interval Control Subheader -->
             <div class="connectivity-subbar">
-                <span class="subbar-label"><i class="fa-solid fa-circle-nodes"></i> Connectivity Status:</span>
-                <span class="subbar-val" id="connectivityStatusVal">Disconnected</span>
+                <div class="subbar-left">
+                    <span class="subbar-label"><i class="fa-solid fa-circle-nodes"></i> Connectivity:</span>
+                    <span class="subbar-val" id="connectivityStatusVal">Disconnected</span>
+                </div>
+
+                <div class="subbar-right">
+                    <div class="interval-setting">
+                        <label for="telemetryIntervalSelect"><i class="fa-solid fa-clock"></i> Signal Poll:</label>
+                        <select id="telemetryIntervalSelect" class="select-sm">
+                            <option value="1">1s (Fast)</option>
+                            <option value="2">2s</option>
+                            <option value="3" selected>3s (Default)</option>
+                            <option value="5">5s</option>
+                            <option value="10">10s</option>
+                        </select>
+                    </div>
+
+                    <div class="interval-setting">
+                        <label for="copsIntervalSelect"><i class="fa-solid fa-radar"></i> Auto Spectrum Scan:</label>
+                        <select id="copsIntervalSelect" class="select-sm">
+                            <option value="0">Off (Manual Only)</option>
+                            <option value="30">Every 30s</option>
+                            <option value="60" selected>Every 60s (Default)</option>
+                            <option value="120">Every 2 mins</option>
+                            <option value="300">Every 5 mins</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <!-- Row 1: Key Signal Metrics Cards -->
@@ -167,11 +193,11 @@
                         <div class="info-grid">
                             <div class="info-item">
                                 <span class="info-label">ICCID (SIM Serial)</span>
-                                <span class="info-val font-mono" id="iccidVal">8944110068214981729F</span>
+                                <span class="info-val font-mono" id="iccidVal">89882390000692255782</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">IMSI (Subscriber ID)</span>
-                                <span class="info-val font-mono" id="imsiVal">234159012345678</span>
+                                <span class="info-val font-mono" id="imsiVal">901280085050088</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">SIM State</span>
@@ -179,7 +205,7 @@
                             </div>
                             <div class="info-item">
                                 <span class="info-label">Network Assigned IP</span>
-                                <span class="info-val font-mono highlight" id="ipVal">10.142.88.204</span>
+                                <span class="info-val font-mono highlight" id="ipVal">Not Connected</span>
                             </div>
                         </div>
                     </div>
@@ -198,11 +224,11 @@
                             </div>
                             <div class="info-item">
                                 <span class="info-label">Supply Voltage</span>
-                                <span class="info-val" id="voltageVal">3820 mV <small>(3.82 V)</small></span>
+                                <span class="info-val" id="voltageVal">3470 mV <small>(3.47 V)</small></span>
                             </div>
                             <div class="info-item">
-                                <span class="info-label">Chipset Temperature</span>
-                                <span class="info-val" id="tempVal">28.5 °C</span>
+                                <span class="info-label">Firmware Revision</span>
+                                <span class="info-val" id="tempVal">BC660KGLAAR01A05</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">Cell Location (Est.)</span>
@@ -240,7 +266,7 @@
                         <div class="info-grid">
                             <div class="info-item">
                                 <span class="info-label">Network Carrier</span>
-                                <span class="info-val highlight" id="operatorVal">Vodafone UK</span>
+                                <span class="info-val highlight" id="operatorVal">Searching...</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">PLMN (MCC-MNC)</span>
@@ -277,8 +303,8 @@
                             <a href="/api/history/export" target="_blank" class="btn btn-sm btn-outline">
                                 <i class="fa-solid fa-file-csv"></i> Export CSV
                             </a>
-                            <button id="clearDbBtn" class="btn btn-sm btn-icon" title="Clear SQLite Database">
-                                <i class="fa-solid fa-trash"></i>
+                            <button id="clearDbBtn" class="btn btn-sm btn-danger-outline" title="Clear SQLite Database & Start Fresh">
+                                <i class="fa-solid fa-trash"></i> Clear & Start Fresh
                             </button>
                         </div>
                     </div>
@@ -341,7 +367,7 @@
                 <div class="card neighbour-card">
                     <div class="card-header">
                         <span class="card-title"><i class="fa-solid fa-network-wired"></i> Neighboring Cells</span>
-                        <span class="count-tag" id="neighbourCount">3 Detected</span>
+                        <span class="count-tag" id="neighbourCount">0 Detected</span>
                     </div>
                     <div class="card-body table-responsive">
                         <table class="data-table">
@@ -387,7 +413,7 @@
                             </thead>
                             <tbody id="networksTableBody">
                                 <tr>
-                                    <td colspan="4" class="empty-state">Click "Scan Networks" to search visible networks</td>
+                                    <td colspan="4" class="empty-state">Auto-scanning visible networks on connection...</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -399,10 +425,10 @@
             <section class="terminal-row">
                 <div class="card terminal-card">
                     <div class="card-header">
-                        <span class="card-title"><i class="fa-solid fa-terminal"></i> ASCII Serial Diagnostics Log</span>
+                        <span class="card-title"><i class="fa-solid fa-terminal"></i> Py-LogKit ASCII Serial Diagnostics</span>
                         <div class="terminal-quick-cmds">
                             <button id="toggleFileLogBtn" class="btn btn-sm btn-secondary" title="Enable/Disable saving logs to dashboard_serial.log">
-                                <i class="fa-solid fa-file-lines"></i> Disk Log: ON
+                                <i class="fa-solid fa-file-lines"></i> Py-LogKit: ON
                             </button>
                             <button class="cmd-btn" data-cmd="AT">AT</button>
                             <button class="cmd-btn" data-cmd="ATI">ATI</button>
@@ -410,21 +436,20 @@
                             <button class="cmd-btn" data-cmd="AT+QCCID">AT+QCCID</button>
                             <button class="cmd-btn" data-cmd="AT+CIMI">AT+CIMI</button>
                             <button class="cmd-btn" data-cmd="AT+CBC">AT+CBC</button>
-                            <button class="cmd-btn" data-cmd="AT+QTEMP">AT+QTEMP</button>
                             <button class="cmd-btn" data-cmd='AT+QENG="servingcell"'>Serving Cell</button>
-                            <button class="cmd-btn" data-cmd='AT+QENG="neighbourcell"'>Neighbours</button>
                             <button class="cmd-btn" data-cmd="AT+COPS?">COPS?</button>
+                            <button class="cmd-btn" data-cmd="AT+COPS=?">COPS=? Scan</button>
                             <button class="cmd-btn" data-cmd="AT+CEREG?">CEREG?</button>
                             <button id="clearLogBtn" class="btn btn-sm btn-icon"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </div>
                     <div class="card-body terminal-body">
                         <div class="log-console" id="logConsole">
-                            <div class="log-line log-info">[SYSTEM] Quectel BC660K Dashboard Ready. Connect to serial port or run with --demo flag.</div>
+                            <div class="log-line log-info">[SYSTEM] Quectel BC660K Dashboard Ready. Connected to COM3 @ 115200 baud.</div>
                         </div>
                         <div class="terminal-input-bar">
                             <span class="prompt">AT></span>
-                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+QCCID)..." autocomplete="off">
+                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CSQ)..." autocomplete="off">
                             <button id="sendAtBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send</button>
                         </div>
                     </div>

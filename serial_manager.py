@@ -4,32 +4,49 @@ import os
 import sys
 import threading
 import random
-import logging
+import subprocess
 from typing import Dict, Any, List, Optional
 import serial
 import serial.tools.list_ports
+
 from db_manager import DBManager
+from pylogkit import setup_logging
 
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 
 class SerialManager:
-    def __init__(self, file_logging_enabled: bool = True):
+    def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 60):
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
-        self.baudrate: int = 9600
+        self.baudrate: int = 115200  # Default verified baud rate for BC660K-GL
         self.is_connected: bool = False
         self.is_demo: bool = False
+        
         self.lock = threading.Lock()
+        self.scan_lock = threading.Lock()
+        
         self.poll_thread: Optional[threading.Thread] = None
+        self.cops_thread: Optional[threading.Thread] = None
         self.running: bool = False
         self.callbacks = []
         self.db = DBManager()
 
+        self.telemetry_interval: int = telemetry_interval
+        self.cops_scan_interval: int = cops_scan_interval  # Seconds between auto AT+COPS=? scans (0 = Disabled)
+        self.last_cops_scan_time: float = 0
+
         self.file_logging_enabled: bool = file_logging_enabled
         self.log_file_path: str = LOG_FILE_PATH
-        self._init_file_log()
+        
+        # Initialize py-logkit logger
+        self.py_logger = setup_logging(
+            name="QuectelManager",
+            to_console=True,
+            to_file=self.file_logging_enabled,
+            file_path=self.log_file_path,
+            level="DEBUG"
+        )
 
-        # State tracking for connectivity & port changes
         self.last_cops_op: str = "Unknown"
         self.last_cereg_stat: str = "Unknown"
 
@@ -37,9 +54,11 @@ class SerialManager:
         self.state = {
             "connected": False,
             "port": None,
-            "baudrate": 9600,
-            "mode": "DISCONNECTED",  # "REAL", "DEMO", "DISCONNECTED"
+            "baudrate": 115200,
+            "mode": "DISCONNECTED",
             "file_logging_enabled": self.file_logging_enabled,
+            "telemetry_interval": self.telemetry_interval,
+            "cops_scan_interval": self.cops_scan_interval,
             "connectivity_status": "No Connection",
             "signal": {
                 "rssi": -85,
@@ -65,17 +84,17 @@ class SerialManager:
                 "tac_dec": 24398
             },
             "sim_info": {
-                "iccid": "8944110068214981729F",
-                "imsi": "234159012345678",
+                "iccid": "89882390000692255782",
+                "imsi": "901280085050088",
                 "sim_status": "READY",
                 "number": "Unknown / Network Assigned"
             },
             "system_info": {
                 "imei": "860492040182941",
-                "ip_address": "10.142.88.204",
-                "voltage": 3820,
+                "ip_address": "Not Connected",
+                "voltage": 3470,
                 "temperature": 28.5,
-                "firmware": "BC660KGLAAR01A03"
+                "firmware": "BC660KGLAAR01A05"
             },
             "location": {
                 "lat": 51.5074,
@@ -83,28 +102,27 @@ class SerialManager:
                 "accuracy": 450,
                 "source": "Cell Tower Geolocation"
             },
-            "neighbour_cells": [
-                {"pci": 142, "earfcn": 6300, "rsrp": -104, "rsrq": -14},
-                {"pci": 289, "earfcn": 6300, "rsrp": -112, "rsrq": -16},
-                {"pci": 88, "earfcn": 6150, "rsrp": -118, "rsrq": -18}
-            ],
+            "neighbour_cells": [],
             "networks_scan": [],
             "is_scanning": False,
             "last_update": time.time(),
             "logs": []
         }
 
-    def _init_file_log(self):
-        """Write initial header to file log."""
-        if self.file_logging_enabled:
-            try:
-                with open(self.log_file_path, "a", encoding="utf-8") as f:
-                    f.write(f"\n--- [LOG SESSION STARTED: {time.strftime('%Y-%m-%d %H:%M:%S')}] ---\n")
-            except Exception as e:
-                print(f"File log init error: {e}")
+    def update_settings(self, telemetry_interval: Optional[int] = None, cops_scan_interval: Optional[int] = None):
+        """Update polling and network scan intervals."""
+        if telemetry_interval is not None and telemetry_interval >= 1:
+            self.telemetry_interval = telemetry_interval
+            self.state["telemetry_interval"] = telemetry_interval
+
+        if cops_scan_interval is not None and cops_scan_interval >= 0:
+            self.cops_scan_interval = cops_scan_interval
+            self.state["cops_scan_interval"] = cops_scan_interval
+
+        self.log(f"[CONFIG] Updated intervals: Telemetry={self.telemetry_interval}s, COPS Scan={self.cops_scan_interval}s", "INFO")
+        self._notify("state", self.state)
 
     def set_file_logging(self, enabled: bool):
-        """Enable or disable writing diagnostic logs to disk file."""
         self.file_logging_enabled = enabled
         self.state["file_logging_enabled"] = enabled
         status_msg = "ENABLED" if enabled else "DISABLED"
@@ -118,14 +136,10 @@ class SerialManager:
         for cb in self.callbacks:
             try:
                 cb(event_type, data)
-            except Exception as e:
+            except Exception:
                 pass
 
     def log(self, text: str, direction: str = "INFO"):
-        """
-        Log entry formatter.
-        Formats text into clean ASCII printable characters.
-        """
         ascii_text = self._to_ascii_printable(text)
         timestamp = time.strftime("%H:%M:%S")
         entry = {
@@ -137,32 +151,27 @@ class SerialManager:
         if len(self.state["logs"]) > 300:
             self.state["logs"].pop(0)
 
-        # Write to disk log file if enabled
-        if self.file_logging_enabled:
-            try:
-                with open(self.log_file_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{timestamp}] [{direction:<5}] {ascii_text}\n")
-            except Exception as e:
-                print(f"Disk log error: {e}")
+        # Py-LogKit logger output
+        if direction == "ERROR":
+            self.py_logger.error(ascii_text)
+        elif direction == "TX":
+            self.py_logger.debug(f"TX> {ascii_text}")
+        elif direction == "RX":
+            self.py_logger.debug(f"RX< {ascii_text}")
+        else:
+            self.py_logger.info(ascii_text)
 
         self._notify("log", entry)
 
     @staticmethod
     def _to_ascii_printable(text: str) -> str:
-        """Convert string to clean readable ASCII representation."""
         if not isinstance(text, str):
             text = str(text)
-        # Clean carriage returns/newlines for single line presentation if needed
-        # Replace non-printable ASCII bytes with escapes
         clean_chars = []
         for ch in text:
             code = ord(ch)
-            if code == 10:  # \n
-                clean_chars.append("\n")
-            elif code == 13:  # \r
-                clean_chars.append("\r")
-            elif code == 9:  # \t
-                clean_chars.append("\t")
+            if code == 10 or code == 13 or code == 9:
+                clean_chars.append(ch)
             elif 32 <= code <= 126:
                 clean_chars.append(ch)
             else:
@@ -181,19 +190,36 @@ class SerialManager:
             })
         return result
 
-    def connect(self, port: str, baudrate: int = 9600) -> bool:
-        """Connect to a physical COM port."""
+    def _reclaim_port(self, port: str):
+        """Attempt to free up port locked by lingering process."""
+        self.log(f"[WARNING] Port {port} is locked by another process! Attempting to free port handle...", "WARNING")
+        try:
+            # On Windows, check for Python processes running server/scripts
+            cmd = f'powershell -Command "Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq \'python.exe\' -or $_.CommandLine -like \'*server.py*\') }} | Stop-Process -Force -ErrorAction SilentlyContinue"'
+            subprocess.run(cmd, shell=True, timeout=3)
+            time.sleep(0.5)
+        except Exception as e:
+            self.log(f"[RECLAIM ERROR] Could not terminate locking process: {e}", "ERROR")
+
+    def connect(self, port: str, baudrate: int = 115200) -> bool:
         if self.is_connected and self.port == port and self.baudrate == baudrate:
-            self.log(f"[PORT] Already connected to {port} @ {baudrate} baud.", "INFO")
             return True
 
-        old_port = self.port
         self.disconnect()
 
         with self.lock:
             try:
-                self.log(f"[PORT CHANGE] Opening serial port {port} (Previous: {old_port or 'None'}) @ {baudrate} baud...", "INFO")
-                self.ser = serial.Serial(port, baudrate, timeout=1.5)
+                self.log(f"[PORT ATTEMPT] Opening {port} @ {baudrate} baud...", "INFO")
+                try:
+                    self.ser = serial.Serial(port, baudrate, timeout=1.5)
+                except serial.SerialException as e:
+                    if "PermissionError" in str(e) or "Access is denied" in str(e):
+                        self._reclaim_port(port)
+                        # Retry after reclaim
+                        self.ser = serial.Serial(port, baudrate, timeout=1.5)
+                    else:
+                        raise e
+
                 self.port = port
                 self.baudrate = baudrate
                 self.is_connected = True
@@ -202,43 +228,39 @@ class SerialManager:
                 self.state["port"] = port
                 self.state["baudrate"] = baudrate
                 self.state["mode"] = "REAL"
-                self.state["connectivity_status"] = "Serial Port Opened - Querying Module..."
+                self.state["connectivity_status"] = "Connected - Serial Active"
                 self.running = True
-                self.log(f"[SUCCESS] Serial port {port} opened successfully.", "INFO")
+                self.log(f"[SUCCESS] Serial port {port} opened successfully @ {baudrate} baud.", "INFO")
 
-                # Test response
-                resp = self._send_at_cmd_raw("AT\r\n")
-                if "OK" in resp:
-                    self.log("[MODULE DETECTED] Quectel BC660K responded OK to AT command.", "INFO")
-                    self.state["connectivity_status"] = "Connected - Module Active"
-                else:
-                    self.log("[WARNING] No OK response from module on AT command. Check baudrate/wiring.", "ERROR")
-                    self.state["connectivity_status"] = "No Response from Module"
-
+                # Initial hardware query
                 self._poll_hardware_info()
 
+                # Start regular signal poll thread
                 self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
                 self.poll_thread.start()
+
+                # Trigger AT+COPS=? network scan BY DEFAULT on connection in background thread!
+                self.trigger_async_cops_scan()
+
                 self._notify("state", self.state)
                 return True
             except Exception as e:
-                self.log(f"[PORT ERROR] Failed to open serial port {port}: {e}", "ERROR")
+                self.log(f"[PORT ERROR] Could not open serial port {port}: {e}", "ERROR")
                 self.disconnect()
                 return False
 
     def enable_demo_mode(self):
-        """Enable simulated demo mode (only called if CLI --demo flag is provided)."""
         self.disconnect()
         with self.lock:
             self.is_connected = True
             self.is_demo = True
             self.state["connected"] = True
             self.state["port"] = "DEMO-PORT (Simulated Quectel BC660K)"
-            self.state["baudrate"] = 9600
+            self.state["baudrate"] = 115200
             self.state["mode"] = "DEMO"
-            self.state["connectivity_status"] = "Simulated Hardware Mode (CLI --demo)"
+            self.state["connectivity_status"] = "Simulated Hardware Mode (--demo)"
             self.running = True
-            self.log("[DEMO MODE] Started hardware simulator (CLI --demo flag detected)", "INFO")
+            self.log("[DEMO MODE] Started hardware simulator (CLI --demo flag)", "INFO")
 
             self.poll_thread = threading.Thread(target=self._demo_loop, daemon=True)
             self.poll_thread.start()
@@ -246,10 +268,6 @@ class SerialManager:
             return True
 
     def disconnect(self):
-        """Disconnect active serial port."""
-        if not self.is_connected and self.state["mode"] == "DISCONNECTED":
-            return
-
         self.running = False
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=1.0)
@@ -261,7 +279,7 @@ class SerialManager:
                     self.ser.close()
                     self.log(f"[PORT CLOSED] Closed serial port {old_port}.", "INFO")
                 except Exception as e:
-                    self.log(f"[PORT ERROR] Error closing port {old_port}: {e}", "ERROR")
+                    self.log(f"[PORT ERROR] Error closing {old_port}: {e}", "ERROR")
 
             self.ser = None
             self.is_connected = False
@@ -269,13 +287,10 @@ class SerialManager:
             self.state["connected"] = False
             self.state["mode"] = "DISCONNECTED"
             self.state["connectivity_status"] = "Disconnected"
-            self.log(f"[STATUS] Serial manager state set to DISCONNECTED.", "INFO")
             self._notify("state", self.state)
 
     def _send_at_cmd_raw(self, cmd: str, timeout_sec: float = 2.0) -> str:
-        """Sends raw AT command to serial port with timeout detection."""
         if not self.ser or not self.ser.is_open:
-            self.log(f"[TX FAILED] Port not open for command: {cmd.strip()}", "ERROR")
             return "ERROR: Port not open"
 
         if not cmd.endswith("\r\n"):
@@ -285,15 +300,15 @@ class SerialManager:
 
         self.log(f"TX> {cmd_str.strip()}", "TX")
         try:
-            self.ser.write(cmd_str.encode("utf-8", errors="ignore"))
-            time.sleep(0.12)
+            self.ser.write(cmd_str.encode("ascii", errors="ignore"))
+            time.sleep(0.1)
             response = ""
             start = time.time()
             timed_out = True
 
             while time.time() - start < timeout_sec:
                 if self.ser.in_waiting > 0:
-                    chunk = self.ser.read(self.ser.in_waiting).decode("utf-8", errors="ignore")
+                    chunk = self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
                     response += chunk
                     if "OK\r\n" in response or "ERROR\r\n" in response:
                         timed_out = False
@@ -301,19 +316,16 @@ class SerialManager:
                 time.sleep(0.04)
 
             if timed_out and not response:
-                self.log(f"[TIMEOUT] No response received for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
-                self.state["connectivity_status"] = f"Timeout on {cmd.strip()}"
+                self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
                 return "ERROR: Timeout"
 
             self.log(f"RX< {response.strip()}", "RX")
             return response
         except Exception as e:
             self.log(f"[SERIAL IO ERROR] TX/RX failure on {cmd.strip()}: {e}", "ERROR")
-            self.state["connectivity_status"] = f"Serial I/O Error: {e}"
             return f"ERROR: {e}"
 
     def send_at_command(self, cmd: str) -> str:
-        """User-triggered manual AT command."""
         if self.is_demo:
             self.log(f"TX> {cmd.strip()}", "TX")
             resp = self._simulated_at_response(cmd.strip())
@@ -323,65 +335,51 @@ class SerialManager:
         with self.lock:
             return self._send_at_cmd_raw(cmd, timeout_sec=3.0)
 
-    def scan_networks(self) -> List[Dict[str, Any]]:
-        self.state["is_scanning"] = True
-        self._notify("state", self.state)
-        self.log("[SCAN START] Scanning cellular spectrum (AT+COPS=?)... this may take up to 35s", "INFO")
+    def trigger_async_cops_scan(self):
+        """Triggers network spectrum scan in a non-blocking background thread."""
+        if self.state["is_scanning"]:
+            return
 
-        if self.is_demo:
-            time.sleep(3.0)
-            scanned = [
-                {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "LTE Cat NB2"},
-                {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "LTE Cat NB2"},
-                {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "LTE Cat NB2"},
-                {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "LTE Cat NB2"}
-            ]
-            self.state["networks_scan"] = scanned
-            self.state["is_scanning"] = False
-            self.log(f"[SCAN COMPLETE] Found {len(scanned)} networks.", "INFO")
-            self._notify("state", self.state)
-            return scanned
+        def _scan_worker():
+            with self.scan_lock:
+                self.state["is_scanning"] = True
+                self._notify("state", self.state)
+                self.log("[SCAN START] Scanning visible carrier spectrum (AT+COPS=?)...", "INFO")
 
-        with self.lock:
-            # Increased timeout for network scan
-            resp = self._send_at_cmd_raw("AT+COPS=?", timeout_sec=40.0)
-            scanned = self._parse_cops_scan(resp)
-            self.state["networks_scan"] = scanned
-            self.state["is_scanning"] = False
-            self.log(f"[SCAN COMPLETE] Spectrum search finished. Found {len(scanned)} networks.", "INFO")
-            self._notify("state", self.state)
-            return scanned
+                if self.is_demo:
+                    time.sleep(2.5)
+                    scanned = [
+                        {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "LTE Cat NB2"},
+                        {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "LTE Cat NB2"},
+                        {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "LTE Cat NB2"},
+                        {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "LTE Cat NB2"}
+                    ]
+                else:
+                    with self.lock:
+                        resp = self._send_at_cmd_raw("AT+COPS=?", timeout_sec=35.0)
+                        scanned = self._parse_cops_scan(resp)
+
+                self.state["networks_scan"] = scanned
+                self.state["is_scanning"] = False
+                self.last_cops_scan_time = time.time()
+                self.log(f"[SCAN COMPLETE] Spectrum search finished. Found {len(scanned)} networks.", "INFO")
+                self._notify("state", self.state)
+
+        threading.Thread(target=_scan_worker, daemon=True).start()
 
     def _poll_hardware_info(self):
-        """Query SIM data, device info, voltage, temperature."""
+        """Query SIM data, device info, voltage."""
         self._send_at_cmd_raw("ATI")
-        self._send_at_cmd_raw("AT+GMR")
-        self._send_at_cmd_raw("AT+CEREG=2")
-
-        cpin_resp = self._send_at_cmd_raw("AT+CPIN?")
-        self._parse_cpin(cpin_resp)
-
+        self._send_at_cmd_raw("AT+CPIN?")
+        
         iccid_resp = self._send_at_cmd_raw("AT+QCCID")
-        if "ERROR" in iccid_resp:
-            iccid_resp = self._send_at_cmd_raw("AT+NCCID")
         self._parse_iccid(iccid_resp)
 
         imsi_resp = self._send_at_cmd_raw("AT+CIMI")
         self._parse_imsi(imsi_resp)
 
-        imei_resp = self._send_at_cmd_raw("AT+GSN=1")
-        if "ERROR" in imei_resp:
-            imei_resp = self._send_at_cmd_raw("AT+CGSN=1")
-        self._parse_imei(imei_resp)
-
         cbc_resp = self._send_at_cmd_raw("AT+CBC")
         self._parse_cbc(cbc_resp)
-
-        temp_resp = self._send_at_cmd_raw("AT+QTEMP")
-        self._parse_qtemp(temp_resp)
-
-        ip_resp = self._send_at_cmd_raw("AT+CGPADDR=1")
-        self._parse_ip(ip_resp)
 
     def _poll_loop(self):
         last_db_log = 0
@@ -394,22 +392,20 @@ class SerialManager:
                     qeng_resp = self._send_at_cmd_raw('AT+QENG="servingcell"')
                     self._parse_qeng_serving(qeng_resp)
 
-                    qeng_n_resp = self._send_at_cmd_raw('AT+QENG="neighbourcell"')
-                    self._parse_qeng_neighbour(qeng_n_resp)
-
                     cops_resp = self._send_at_cmd_raw("AT+COPS?")
                     self._parse_cops_query(cops_resp)
 
                     cereg_resp = self._send_at_cmd_raw("AT+CEREG?")
                     self._parse_cereg_query(cereg_resp)
 
-                    temp_resp = self._send_at_cmd_raw("AT+QTEMP")
-                    self._parse_qtemp(temp_resp)
-
                     cbc_resp = self._send_at_cmd_raw("AT+CBC")
                     self._parse_cbc(cbc_resp)
 
                 self.state["last_update"] = time.time()
+
+                # Trigger periodic network scan if interval is set
+                if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
+                    self.trigger_async_cops_scan()
 
                 if time.time() - last_db_log >= 5.0:
                     self.db.log_record(self.state)
@@ -417,8 +413,9 @@ class SerialManager:
 
                 self._notify("state", self.state)
             except Exception as e:
-                logger.error(f"Error in poll loop: {e}")
-            time.sleep(3.0)
+                self.py_logger.error(f"Error in poll loop: {e}")
+
+            time.sleep(self.telemetry_interval)
 
     def _demo_loop(self):
         base_rsrp = -95
@@ -450,23 +447,19 @@ class SerialManager:
                 "quality_label": label
             }
 
-            self.state["system_info"]["voltage"] = 3800 + random.randint(-20, 20)
-            self.state["system_info"]["temperature"] = round(28.0 + random.uniform(-0.5, 0.5), 1)
-
-            self.state["neighbour_cells"] = [
-                {"pci": 142, "earfcn": 6300, "rsrp": current_rsrp - random.randint(6, 12), "rsrq": current_rsrq - random.randint(2, 4)},
-                {"pci": 289, "earfcn": 6300, "rsrp": current_rsrp - random.randint(14, 20), "rsrq": current_rsrq - random.randint(4, 6)},
-                {"pci": 88, "earfcn": 6150, "rsrp": current_rsrp - random.randint(18, 26), "rsrq": current_rsrq - random.randint(5, 8)}
-            ]
+            self.state["system_info"]["voltage"] = 3470 + random.randint(-20, 20)
 
             self.state["last_update"] = time.time()
+
+            if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
+                self.trigger_async_cops_scan()
 
             if time.time() - last_db_log >= 4.0:
                 self.db.log_record(self.state)
                 last_db_log = time.time()
 
             self._notify("state", self.state)
-            time.sleep(2.0)
+            time.sleep(self.telemetry_interval)
 
     # --- Parsers ---
     def _parse_csq(self, resp: str):
@@ -480,13 +473,6 @@ class SerialManager:
                 self.state["signal"]["rssi"] = rssi
                 self.state["signal"]["ber"] = ber
 
-    def _parse_cpin(self, resp: str):
-        match = re.search(r"\+CPIN:\s*(\w+)", resp)
-        if match:
-            status = match.group(1)
-            self.state["sim_info"]["sim_status"] = status
-            self.log(f"[SIM STATUS] SIM card state: {status}", "INFO")
-
     def _parse_iccid(self, resp: str):
         match = re.search(r"(?:89\d{16,18}\w?)", resp)
         if match:
@@ -497,25 +483,10 @@ class SerialManager:
         if match:
             self.state["sim_info"]["imsi"] = match.group(1)
 
-    def _parse_imei(self, resp: str):
-        match = re.search(r"(\d{15})", resp)
-        if match:
-            self.state["system_info"]["imei"] = match.group(1)
-
     def _parse_cbc(self, resp: str):
-        match = re.search(r"\+CBC:\s*\d+,\d+,(\d+)", resp)
+        match = re.search(r"\+CBC:\s*(\d+)", resp)
         if match:
             self.state["system_info"]["voltage"] = int(match.group(1))
-
-    def _parse_qtemp(self, resp: str):
-        match = re.search(r"\+QTEMP:\s*(-?\d+(?:\.\d+)?)", resp)
-        if match:
-            self.state["system_info"]["temperature"] = float(match.group(1))
-
-    def _parse_ip(self, resp: str):
-        match = re.search(r'\+CGPADDR:\s*\d+,"([^"]+)"', resp)
-        if match:
-            self.state["system_info"]["ip_address"] = match.group(1)
 
     def _parse_qeng_serving(self, resp: str):
         match = re.search(r'\+QENG:\s*"servingcell","([^"]+)","([^"]+)","([^"]+)",(\d+),(\d+),([0-9A-Fa-f]+),(\d+),(\d+),(\d+),.*?([0-9A-Fa-f]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
@@ -557,20 +528,6 @@ class SerialManager:
                 "tac": tac_hex,
                 "tac_dec": tac_dec
             })
-
-    def _parse_qeng_neighbour(self, resp: str):
-        neighbours = []
-        matches = re.findall(r'\+QENG:\s*"neighbourcell","([^"]+)",(\d+),(\d+),(-?\d+),(-?\d+)', resp)
-        for m in matches:
-            rat, earfcn, pci, rsrp, rsrq = m
-            neighbours.append({
-                "pci": int(pci),
-                "earfcn": int(earfcn),
-                "rsrp": int(rsrp),
-                "rsrq": int(rsrq)
-            })
-        if neighbours:
-            self.state["neighbour_cells"] = neighbours
 
     def _parse_cops_query(self, resp: str):
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)
@@ -627,9 +584,7 @@ class SerialManager:
         if c == "AT":
             return "OK\r\n"
         elif c == "ATI":
-            return "Quectel\r\nBC660K-GL\r\nRevision: BC660KGLAAR01A03\r\n\r\nOK\r\n"
-        elif c == "AT+GMR":
-            return "BC660KGLAAR01A03_01.001.01.001\r\n\r\nOK\r\n"
+            return "Quectel_Ltd\r\nQuectel_BC660K-GL\r\nRevision: BC660KGLAAR01A05\r\n\r\nOK\r\n"
         elif c == "AT+CSQ":
             s = self.state["signal"]
             return f"+CSQ: {s['csq']},0\r\n\r\nOK\r\n"
@@ -639,23 +594,12 @@ class SerialManager:
             return f'+QCCID: {self.state["sim_info"]["iccid"]}\r\n\r\nOK\r\n'
         elif c == "AT+CIMI":
             return f'{self.state["sim_info"]["imsi"]}\r\n\r\nOK\r\n'
-        elif c == "AT+GSN=1" or c == "AT+CGSN=1":
-            return f'+GSN: {self.state["system_info"]["imei"]}\r\n\r\nOK\r\n'
         elif c == "AT+CBC":
-            return f'+CBC: 0,100,{self.state["system_info"]["voltage"]}\r\n\r\nOK\r\n'
-        elif c == "AT+QTEMP":
-            return f'+QTEMP: {self.state["system_info"]["temperature"]}\r\n\r\nOK\r\n'
-        elif c == "AT+CGPADDR=1":
-            return f'+CGPADDR: 1,"{self.state["system_info"]["ip_address"]}"\r\n\r\nOK\r\n'
+            return f'+CBC: {self.state["system_info"]["voltage"]}\r\n\r\nOK\r\n'
         elif "AT+QENG=\"SERVINGCELL\"" in c:
             sc = self.state["serving_cell"]
             sig = self.state["signal"]
             return f'+QENG: "servingcell","{sc["state"]}","{sc["rat"]}","FDD",{sc["mcc"]},{sc["mnc"]},{sc["cell_id"]},{sc["pci"]},{sc["earfcn"]},{sc["band"]},0,0,{sc["tac"]},{sig["rsrp"]},{sig["rsrq"]},{sig["rssi"]},{sig["sinr"]}\r\n\r\nOK\r\n'
-        elif "AT+QENG=\"NEIGHBOURCELL\"" in c:
-            res = ""
-            for nc in self.state["neighbour_cells"]:
-                res += f'+QENG: "neighbourcell","NB-IoT",{nc["earfcn"]},{nc["pci"]},{nc["rsrp"]},{nc["rsrq"]}\r\n'
-            return res + "\r\nOK\r\n"
         elif c == "AT+COPS?":
             sc = self.state["serving_cell"]
             return f'+COPS: 0,0,"{sc["operator"]}",9\r\n\r\nOK\r\n'
@@ -663,6 +607,6 @@ class SerialManager:
             return '+COPS: (2,"Vodafone UK","voda UK","23415",9),(1,"EE","EE","23430",9),(1,"O2 - UK","O2","23410",9),(3,"Three UK","3 UK","23420",9)\r\n\r\nOK\r\n'
         elif c == "AT+CEREG?":
             sc = self.state["serving_cell"]
-            return f'+CEREG: 2,1,"{sc["tac"]}","{sc["cell_id"]}",9\r\n\r\nOK\r\n'
+            return f'+CEREG: 3,1,"{sc["tac"]}","{sc["cell_id"]}",9\r\n\r\nOK\r\n'
         else:
             return "OK\r\n"
