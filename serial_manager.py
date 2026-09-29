@@ -392,7 +392,8 @@ class SerialManager:
         try:
             ps_script = f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*server.py*') }} | Stop-Process -Force -ErrorAction SilentlyContinue"
             cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{ps_script}"'
-            subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            creation_flags = 0x08000000 if os.name == 'nt' else 0
+            subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creation_flags)
             time.sleep(0.8)
         except Exception as e:
             self.log(f"[RECLAIM ERROR] Could not terminate locking process: {e}", "ERROR")

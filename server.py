@@ -229,6 +229,8 @@ def read_index():
 
 def setup_signal_handlers():
     def handle_signal(sig, frame):
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Goodbye!")
         try:
             manager.disconnect()
