@@ -802,7 +802,7 @@ class SerialManager:
             self.state["serving_cell"]["operator"] = op
 
     def _parse_cereg_query(self, resp: str):
-        match = re.search(r'\+CEREG:\s*\d+,(\d+)', resp)
+        match = re.search(r'\+CEREG:\s*\d+,(\d+)(?:,"([0-9A-Fa-f]+)","([0-9A-Fa-f]+)")?', resp)
         if match:
             stat_code = int(match.group(1))
             stat_names = {
@@ -818,6 +818,22 @@ class SerialManager:
                 self.log(f"[CONNECTIVITY STATE] EPS Registration: {stat_str}", "INFO")
                 self.last_cereg_stat = stat_str
                 self.state["connectivity_status"] = f"Network: {stat_str}"
+
+            if match.group(2) and match.group(3):
+                tac_hex = match.group(2)
+                cell_id_hex = match.group(3)
+                try:
+                    cell_id_dec = int(cell_id_hex, 16)
+                    tac_dec = int(tac_hex, 16)
+                except ValueError:
+                    cell_id_dec, tac_dec = 0, 0
+
+                self.state["serving_cell"].update({
+                    "tac": tac_hex,
+                    "tac_dec": tac_dec,
+                    "cell_id": cell_id_hex,
+                    "cell_id_dec": cell_id_dec
+                })
 
     def _parse_cops_scan(self, resp: str) -> List[Dict[str, Any]]:
         status_map = {0: "Unknown", 1: "Available", 2: "Current", 3: "Forbidden"}
