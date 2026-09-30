@@ -223,6 +223,12 @@ select:focus {
     border: 1px solid rgba(245, 158, 11, 0.3);
 }
 
+.status-badge.connecting {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--primary);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 .status-dot {
     width: 8px;
     height: 8px;
@@ -410,6 +416,7 @@ select:focus {
 .badge-fair { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
 .badge-poor { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
 .badge-primary { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
+.badge-secondary { background: rgba(140, 156, 184, 0.15); color: #8c9cb8; }
 
 /* Hardware Row (SIM & System) */
 .hardware-row {

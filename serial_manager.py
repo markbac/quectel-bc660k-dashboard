@@ -53,62 +53,66 @@ class SerialManager:
         self.last_cereg_stat: str = "Unknown"
 
         # Current state cache
-        self.state = {
+        self.state = self._get_initial_state()
+
+    def _get_initial_state(self) -> Dict[str, Any]:
+        return {
             "connected": False,
             "port": None,
             "baudrate": 115200,
             "mode": "DISCONNECTED",
+            "hardware_communicated": False,
             "file_logging_enabled": self.file_logging_enabled,
             "telemetry_interval": self.telemetry_interval,
             "cops_scan_interval": self.cops_scan_interval,
             "connectivity_status": "No Connection",
             "signal": {
-                "rssi": -85,
-                "csq": 14,
-                "rsrp": -98,
-                "rsrq": -10,
-                "sinr": 12,
-                "ber": 0,
-                "quality_label": "Good"
+                "rssi": None,
+                "csq": None,
+                "rsrp": None,
+                "rsrq": None,
+                "sinr": None,
+                "ber": None,
+                "quality_label": "Awaiting Data"
             },
             "apn_info": {
-                "apn": "iot.vodafone.com",
-                "pdp_type": "IP",
-                "attached": True,
+                "apn": "--",
+                "pdp_type": "--",
+                "attached": False,
                 "pdp_cid": 1
             },
             "serving_cell": {
-                "rat": "NB-IoT",
-                "state": "CONNECTED",
-                "mcc": "234",
-                "mnc": "15",
-                "operator": "Vodafone UK",
-                "cell_id": "1D2F401",
-                "cell_id_dec": 30602241,
-                "pci": 320,
-                "earfcn": 6300,
-                "band": "8",
-                "tac": "5F4E",
-                "tac_dec": 24398
+                "rat": "--",
+                "state": "DISCONNECTED",
+                "mcc": "--",
+                "mnc": "--",
+                "operator": "Awaiting Modem Communication...",
+                "cell_id": "--",
+                "cell_id_dec": "--",
+                "pci": "--",
+                "earfcn": "--",
+                "band": "--",
+                "tac": "--",
+                "tac_dec": "--"
             },
             "sim_info": {
-                "iccid": "89882390000692255782",
-                "imsi": "901280085050088",
-                "sim_status": "READY",
-                "number": "Unknown / Network Assigned"
+                "iccid": "--",
+                "imsi": "--",
+                "sim_status": "AWAITING MODEM",
+                "number": "--"
             },
             "system_info": {
-                "imei": "860492040182941",
-                "ip_address": "Not Connected",
-                "voltage": 3470,
-                "temperature": 28.5,
-                "firmware": "BC660KGLAAR01A05"
+                "imei": "--",
+                "ip_address": "--",
+                "voltage": None,
+                "temperature": None,
+                "firmware": "--"
             },
             "location": {
-                "lat": 51.5074,
-                "lon": -0.1278,
-                "accuracy": 450,
-                "source": "Cell Tower Geolocation"
+                "lat": None,
+                "lon": None,
+                "accuracy": None,
+                "source": "Awaiting Cell Geolocation"
             },
             "neighbour_cells": [],
             "networks_scan": [],
@@ -472,9 +476,12 @@ class SerialManager:
                 except Exception as e:
                     self.log(f"[PORT ERROR] Error closing {old_port}: {e}", "ERROR")
 
+            logs = self.state.get("logs", [])
             self.ser = None
             self.is_connected = False
             self.is_demo = False
+            self.state = self._get_initial_state()
+            self.state["logs"] = logs
             self.state["connected"] = False
             self.state["mode"] = "DISCONNECTED"
             self.state["connectivity_status"] = "Disconnected"
@@ -509,6 +516,10 @@ class SerialManager:
             if timed_out and not response:
                 self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
                 return "ERROR: Timeout"
+
+            if not self.state.get("hardware_communicated", False):
+                self.state["hardware_communicated"] = True
+                self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
 
             self.log(f"RX< {response.strip()}", "RX")
             return response

@@ -488,13 +488,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Update Dashboard UI with state object
     function updateUIState(state) {
+        const isDemo = state.mode === "DEMO";
+        const isCommunicated = isDemo || !!state.hardware_communicated;
+
         if (state.connected) {
-            if (state.mode === "DEMO") {
+            if (isDemo) {
                 connectionStatus.className = "status-badge demo";
                 statusText.textContent = "Demo Mode (--demo)";
-            } else {
+            } else if (isCommunicated) {
                 connectionStatus.className = "status-badge connected";
                 statusText.textContent = `Connected (${state.port})`;
+            } else {
+                connectionStatus.className = "status-badge connecting";
+                statusText.textContent = `Connecting (${state.port})...`;
             }
             connectBtn.innerHTML = `<i class="fa-solid fa-unlink"></i> Disconnect`;
             connectBtn.dataset.state = "connected";
@@ -519,74 +525,92 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // APN Info Update
         const apnInfo = state.apn_info || {};
-        currentApnVal.textContent = apnInfo.apn || "Default / Blank";
-        pdpTypeVal.textContent = `${apnInfo.pdp_type || 'IP'} (CID: ${apnInfo.pdp_cid || 1})`;
-        if (apnInfo.attached) {
+        currentApnVal.textContent = isCommunicated ? (apnInfo.apn || "Default / Blank") : "--";
+        pdpTypeVal.textContent = isCommunicated ? `${apnInfo.pdp_type || 'IP'} (CID: ${apnInfo.pdp_cid || 1})` : "--";
+        if (isCommunicated && apnInfo.attached) {
             apnAttachBadge.className = "badge badge-good";
             apnAttachBadge.textContent = "Attached";
-        } else {
+        } else if (isCommunicated) {
             apnAttachBadge.className = "badge badge-fair";
             apnAttachBadge.textContent = "Detached";
+        } else {
+            apnAttachBadge.className = "badge badge-secondary";
+            apnAttachBadge.textContent = "Awaiting Data";
         }
 
         // Signal Metrics
-        const sig = state.signal;
-        rsrpVal.textContent = sig.rsrp;
-        rsrqVal.textContent = sig.rsrq;
-        rssiVal.textContent = sig.rssi;
-        csqVal.textContent = `(CSQ: ${sig.csq}/31)`;
-        sinrVal.textContent = sig.sinr;
+        const sig = state.signal || {};
+        const hasSignalData = isCommunicated && sig.rsrp !== null && sig.rsrp !== undefined;
 
-        let rsrpPct = Math.max(0, Math.min(100, ((sig.rsrp + 140) / 90) * 100));
+        rsrpVal.textContent = hasSignalData ? sig.rsrp : "--";
+        rsrqVal.textContent = hasSignalData ? sig.rsrq : "--";
+        rssiVal.textContent = hasSignalData ? sig.rssi : "--";
+        csqVal.textContent = hasSignalData && sig.csq !== null ? `(CSQ: ${sig.csq}/31)` : "(CSQ: --)";
+        sinrVal.textContent = hasSignalData && sig.sinr !== null ? sig.sinr : "--";
+
+        let rsrpPct = hasSignalData ? Math.max(0, Math.min(100, ((sig.rsrp + 140) / 90) * 100)) : 0;
         rsrpBar.style.width = `${rsrpPct}%`;
 
-        rsrpQuality.textContent = sig.quality_label;
-        rsrpQuality.className = `badge badge-${sig.quality_label.toLowerCase()}`;
+        if (hasSignalData && sig.quality_label) {
+            rsrpQuality.textContent = sig.quality_label;
+            rsrpQuality.className = `badge badge-${sig.quality_label.toLowerCase()}`;
+        } else {
+            rsrpQuality.textContent = isCommunicated ? "No Signal" : "Awaiting Modem Communication...";
+            rsrpQuality.className = "badge badge-secondary";
+        }
 
-        let rsrqPct = Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100));
+        let rsrqPct = hasSignalData ? Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100)) : 0;
         rsrqBar.style.width = `${rsrqPct}%`;
 
-        let rssiPct = Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100));
+        let rssiPct = hasSignalData ? Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100)) : 0;
         rssiBar.style.width = `${rssiPct}%`;
 
-        let sinrPct = Math.max(0, Math.min(100, ((sig.sinr + 10) / 40) * 100));
+        let sinrPct = hasSignalData && sig.sinr !== null ? Math.max(0, Math.min(100, ((sig.sinr + 10) / 40) * 100)) : 0;
         sinrBar.style.width = `${sinrPct}%`;
 
         // SIM Card Info
         const sim = state.sim_info || {};
-        iccidVal.textContent = sim.iccid || "N/A";
-        imsiVal.textContent = sim.imsi || "N/A";
-        simStateVal.textContent = sim.sim_status || "UNKNOWN";
-        simStatusBadge.textContent = sim.sim_status || "UNKNOWN";
+        iccidVal.textContent = isCommunicated ? (sim.iccid || "N/A") : "--";
+        imsiVal.textContent = isCommunicated ? (sim.imsi || "N/A") : "--";
+        simStateVal.textContent = isCommunicated ? (sim.sim_status || "UNKNOWN") : "AWAITING DATA";
+        simStatusBadge.textContent = isCommunicated ? (sim.sim_status || "UNKNOWN") : "AWAITING DATA";
 
         // System Diagnostics
         const sys = state.system_info || {};
-        imeiVal.textContent = sys.imei || "N/A";
-        ipVal.textContent = sys.ip_address || "Not Connected";
-        voltageVal.innerHTML = `${sys.voltage || 0} mV <small>(${((sys.voltage || 0)/1000).toFixed(2)} V)</small>`;
-        tempVal.textContent = sys.firmware || "BC660KGLAAR01A05";
+        imeiVal.textContent = isCommunicated ? (sys.imei || "N/A") : "--";
+        ipVal.textContent = isCommunicated ? (sys.ip_address || "Not Connected") : "--";
+        voltageVal.innerHTML = isCommunicated && sys.voltage ? `${sys.voltage} mV <small>(${(sys.voltage/1000).toFixed(2)} V)</small>` : "--";
+        tempVal.textContent = isCommunicated ? (sys.firmware || "BC660KGLAAR01A05") : "--";
 
-        const loc = state.location || { lat: 51.5074, lon: -0.1278 };
-        mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
-        mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${loc.lat}, ${loc.lon}`;
+        const loc = state.location || {};
+        if (isCommunicated && loc.lat && loc.lon) {
+            mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
+            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${loc.lat}, ${loc.lon}`;
+        } else {
+            mapLink.href = "#";
+            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> Awaiting Cell Geolocation...`;
+        }
 
         // Serving Cell Details
-        const sc = state.serving_cell;
-        ratBadge.textContent = sc.rat || "NB-IoT";
-        operatorVal.textContent = sc.operator || "Searching...";
-        plmnVal.textContent = `${sc.mcc}-${sc.mnc}`;
-        cellIdVal.childNodes[0].nodeValue = `${sc.cell_id} `;
-        cellIdDec.textContent = `(${sc.cell_id_dec})`;
-        tacVal.childNodes[0].nodeValue = `${sc.tac} `;
-        tacDec.textContent = `(${sc.tac_dec})`;
-        pciVal.textContent = sc.pci;
-        bandVal.textContent = `EARFCN ${sc.earfcn} (Band ${sc.band})`;
+        const sc = state.serving_cell || {};
+        ratBadge.textContent = isCommunicated ? (sc.rat || "NB-IoT") : "--";
+        operatorVal.textContent = isCommunicated ? (sc.operator || "Searching...") : "Awaiting Modem Communication...";
+        plmnVal.textContent = isCommunicated && sc.mcc && sc.mcc !== "--" ? `${sc.mcc}-${sc.mnc}` : "--";
+
+        cellIdVal.childNodes[0].nodeValue = isCommunicated ? `${sc.cell_id || '--'} ` : "-- ";
+        cellIdDec.textContent = isCommunicated && sc.cell_id_dec && sc.cell_id_dec !== "--" ? `(${sc.cell_id_dec})` : "";
+
+        tacVal.childNodes[0].nodeValue = isCommunicated ? `${sc.tac || '--'} ` : "-- ";
+        tacDec.textContent = isCommunicated && sc.tac_dec && sc.tac_dec !== "--" ? `(${sc.tac_dec})` : "";
+
+        pciVal.textContent = isCommunicated ? (sc.pci || "--") : "--";
+        bandVal.textContent = isCommunicated && sc.earfcn && sc.earfcn !== "--" ? `EARFCN ${sc.earfcn} (Band ${sc.band})` : "--";
 
         // Neighbour Cells Table
         const neighbours = state.neighbour_cells || [];
-        neighbourCount.textContent = `${neighbours.length} Detected`;
-        if (neighbours.length === 0) {
-            neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">No neighbor cells detected yet</td></tr>`;
+        neighbourCount.textContent = isCommunicated ? `${neighbours.length} Detected` : "0 Detected";
+        if (!isCommunicated || neighbours.length === 0) {
+            neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">${isCommunicated ? 'No neighbor cells detected yet' : 'Awaiting modem communication...'}</td></tr>`;
         } else {
             neighbourTableBody.innerHTML = neighbours.map(n => {
                 const delta = n.rsrp - sig.rsrp;
@@ -613,7 +637,7 @@ document.addEventListener("DOMContentLoaded", () => {
             scanBtn.disabled = false;
         }
 
-        if (state.networks_scan && state.networks_scan.length > 0) {
+        if (isCommunicated && state.networks_scan && state.networks_scan.length > 0) {
             networksTableBody.innerHTML = state.networks_scan.map(net => {
                 let badgeClass = "badge-fair";
                 if (net.status === "Current") badgeClass = "badge-excellent";
@@ -629,21 +653,25 @@ document.addEventListener("DOMContentLoaded", () => {
                     </tr>
                 `;
             }).join("");
+        } else if (!isCommunicated) {
+            networksTableBody.innerHTML = `<tr><td colspan="4" class="empty-state">Awaiting modem communication...</td></tr>`;
         }
 
-        // Push data to Live Trend Chart
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        if (chartData.labels.length >= 25) {
-            chartData.labels.shift();
-            chartData.rsrp.shift();
-            chartData.rsrq.shift();
-        }
-        chartData.labels.push(timeStr);
-        chartData.rsrp.push(sig.rsrp);
-        chartData.rsrq.push(sig.rsrq);
+        // Push data to Live Trend Chart only if signal data present
+        if (hasSignalData) {
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            if (chartData.labels.length >= 25) {
+                chartData.labels.shift();
+                chartData.rsrp.shift();
+                chartData.rsrq.shift();
+            }
+            chartData.labels.push(timeStr);
+            chartData.rsrp.push(sig.rsrp);
+            chartData.rsrq.push(sig.rsrq);
 
-        if (chart) {
-            chart.update();
+            if (chart) {
+                chart.update();
+            }
         }
 
         loadHistory();
