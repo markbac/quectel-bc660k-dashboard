@@ -52,6 +52,9 @@ function loadDashboard(options = {}) {
     };
     w.HTMLCanvasElement.prototype.getContext = () => ({});
     w.alert = () => {};
+    for (const [key, value] of Object.entries(options.localStorage || {})) {
+        w.localStorage.setItem(key, value);
+    }
     w.confirm = () => true;
 
     // Run the page's DOMContentLoaded handler exactly once, synchronously,
@@ -63,7 +66,9 @@ function loadDashboard(options = {}) {
             onReady = handler;
         }
     };
-    w.eval(fs.readFileSync(path.join(root, "static", "js", "app.js"), "utf8"));
+    for (const script of ["alerts.js", "app.js"]) {
+        w.eval(fs.readFileSync(path.join(root, "static", "js", script), "utf8"));
+    }
     onReady();
 
     harness.push = (state) =>

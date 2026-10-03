@@ -54,6 +54,10 @@
                     <i class="fa-solid fa-link"></i> Connect
                 </button>
 
+                <button id="alertsBtn" class="btn btn-icon" title="Signal alerts">
+                    <i class="fa-solid fa-bell"></i>
+                </button>
+
                 <button id="exitBtn" class="btn btn-danger-outline" title="Stop Server and Disconnect Board">
                     <i class="fa-solid fa-power-off"></i> Exit
                 </button>
@@ -584,6 +588,29 @@
         </main>
     </div>
 
+    <!-- Alert settings -->
+    <dialog id="alertsDialog" class="alerts-dialog">
+        <form method="dialog" id="alertsForm">
+            <h2><i class="fa-solid fa-bell"></i> Signal alerts</h2>
+            <p class="alerts-note">Settings are stored in this browser only.</p>
+            <label class="alerts-row"><input type="checkbox" id="alertEnabled"> Alerts enabled</label>
+            <label class="alerts-row">RSRP alert below
+                <input type="number" id="alertRsrpMin" min="-140" max="-40" step="1"> dBm</label>
+            <label class="alerts-row">RSRQ alert below
+                <input type="number" id="alertRsrqMin" min="-30" max="0" step="1"> dB</label>
+            <label class="alerts-row"><input type="checkbox" id="alertPoor"> Alert when quality drops to Poor</label>
+            <label class="alerts-row"><input type="checkbox" id="alertHandover"> Alert on cell handover</label>
+            <label class="alerts-row"><input type="checkbox" id="alertDisconnect"> Alert when the modem stops answering</label>
+            <label class="alerts-row"><input type="checkbox" id="alertDesktop"> Desktop notifications</label>
+            <label class="alerts-row"><input type="checkbox" id="alertBeep"> Audible beep</label>
+            <div class="alerts-actions">
+                <button type="button" id="alertsCancel" class="btn btn-outline btn-sm">Cancel</button>
+                <button type="submit" id="alertsSave" class="btn btn-primary btn-sm">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="/static/js/alerts.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>
