@@ -47,6 +47,15 @@ Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
 ---
 
+## 🧪 Running the Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+---
+
 ## 📄 License
 
 Distributed under the [MIT License](LICENSE).

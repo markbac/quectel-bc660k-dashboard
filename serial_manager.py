@@ -18,7 +18,23 @@ LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 class SerialManager:
     VERSION = __version__
 
-    def __init__(self, file_logging_enabled: bool = True, telemetry_interval: int = 3, cops_scan_interval: int = 0):
+    def __init__(
+        self,
+        file_logging_enabled: bool = True,
+        telemetry_interval: int = 3,
+        cops_scan_interval: int = 0,
+        db_path: Optional[str] = None,
+        log_file_path: Optional[str] = None,
+    ):
+        """Create a manager.
+
+        Args:
+            file_logging_enabled: Write the serial log to disk.
+            telemetry_interval: Seconds between poll cycles.
+            cops_scan_interval: Seconds between operator scans (0 disables).
+            db_path: SQLite file to use. Defaults to ``telemetry.db`` beside this module.
+            log_file_path: Log file to use. Defaults to ``dashboard_serial.log``.
+        """
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
         self.baudrate: int = 115200
@@ -31,14 +47,14 @@ class SerialManager:
         self.poll_thread: Optional[threading.Thread] = None
         self.running: bool = False
         self.callbacks = []
-        self.db = DBManager()
+        self.db = DBManager(db_path) if db_path else DBManager()
 
         self.telemetry_interval: int = telemetry_interval
         self.cops_scan_interval: int = cops_scan_interval
         self.last_cops_scan_time: float = 0
 
         self.file_logging_enabled: bool = file_logging_enabled
-        self.log_file_path: str = LOG_FILE_PATH
+        self.log_file_path: str = log_file_path or LOG_FILE_PATH
 
         self.py_logger = setup_logging(
             name="QuectelManager",
@@ -441,7 +457,9 @@ class SerialManager:
                 return True
             except Exception as e:
                 self.log(f"[PORT ERROR] Could not open serial port {port}: {e}", "ERROR")
-                self.disconnect()
+                # The lock is not re-entrant, so release resources without
+                # going through disconnect(), which would take it again.
+                self._reset_locked()
                 return False
 
     def enable_demo_mode(self):
@@ -468,24 +486,29 @@ class SerialManager:
             self.poll_thread.join(timeout=1.0)
 
         with self.lock:
-            old_port = self.port
-            if self.ser and self.ser.is_open:
-                try:
-                    self.ser.close()
-                    self.log(f"[PORT CLOSED] Closed serial port {old_port}.", "INFO")
-                except Exception as e:
-                    self.log(f"[PORT ERROR] Error closing {old_port}: {e}", "ERROR")
+            self._reset_locked()
 
-            logs = self.state.get("logs", [])
-            self.ser = None
-            self.is_connected = False
-            self.is_demo = False
-            self.state = self._get_initial_state()
-            self.state["logs"] = logs
-            self.state["connected"] = False
-            self.state["mode"] = "DISCONNECTED"
-            self.state["connectivity_status"] = "Disconnected"
-            self._notify("state", self.state)
+    def _reset_locked(self):
+        """Close the port and reset state. The caller must hold ``self.lock``."""
+        self.running = False
+        old_port = self.port
+        if self.ser and self.ser.is_open:
+            try:
+                self.ser.close()
+                self.log(f"[PORT CLOSED] Closed serial port {old_port}.", "INFO")
+            except Exception as e:
+                self.log(f"[PORT ERROR] Error closing {old_port}: {e}", "ERROR")
+
+        logs = self.state.get("logs", [])
+        self.ser = None
+        self.is_connected = False
+        self.is_demo = False
+        self.state = self._get_initial_state()
+        self.state["logs"] = logs
+        self.state["connected"] = False
+        self.state["mode"] = "DISCONNECTED"
+        self.state["connectivity_status"] = "Disconnected"
+        self._notify("state", self.state)
 
     def _send_at_cmd_raw(self, cmd: str, timeout_sec: float = 2.0) -> str:
         if not self.ser or not self.ser.is_open:
