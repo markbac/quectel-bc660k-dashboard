@@ -11,6 +11,7 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 - 📶 **Real-Time Signal Quality Telemetry**: Monitors **RSRP** (dBm), **RSRQ** (dB), **RSSI** (dBm), **SINR** (dB), and **CSQ** (0-31 scale) with live color-coded quality badges.
 - ⚡ **Py-LogKit Integration**: Features structured, colorized, timestamped, and file-backed logging powered by [`markbac/py-logkit`](https://github.com/markbac/py-logkit), installed from GitHub by `pip install -r requirements.txt`. Server start-up, shutdown and uvicorn access logs use the same handlers. Needs Python 3.10 or later.
 - 🔒 **Serial Port Lock Warning & Auto-Reclaim**: Detects if a COM port is locked by another process, emits warnings, and reclaims handles automatically.
+- 🏷️ **Operator Names**: the module reports its network as a numeric PLMN such as `23415`. `plmn.py` maps the codes it knows (UK, Ireland, Germany, France, the Netherlands, Finland, Sweden) to names, so Vodafone UK appears only when the module is on Vodafone UK's network. Any other code shows as `PLMN <code>`, and names the network reports itself are kept. To add a network, add its code to `OPERATORS` in `plmn.py`.
 - 🔌 **Register and Deregister**: buttons on the Available Carrier Networks card send `AT+COPS=2` (leave the network), `AT+COPS=0` (automatic) or `AT+COPS=1,2,"<plmn>",<act>` (the Register button on a scanned network). Deregistering takes the module off the network until you register again. It is refused while a scan is running.
 - 📡 **Scheduled Network Scan (`AT+COPS=?`)**: Runs a full cellular spectrum scan in an asynchronous non-blocking thread, at the interval chosen in the UI. The default is `Off` because a scan can occupy the modem for several minutes (a real BC660K-GL took about 5 minutes to answer one while deregistered and gave no answer at all while registered, so the dashboard waits up to 10 minutes and does not report the module as unresponsive meanwhile); choosing an interval starts the first scan immediately, and the Scan button starts one on demand.
 - ⚙️ **Configurable Polling Frequencies**: Web UI controls for Signal Poll Interval (`1s`, `2s`, `3s`, `5s`, `10s`) and Spectrum Scan Frequency (`Off`, `30s`, `60s`, `120s`, `300s`).
@@ -40,6 +41,8 @@ git clone https://github.com/markbac/quectel-bc660k-dashboard.git
 cd quectel-bc660k-dashboard
 pip install -r requirements.txt
 ```
+
+This needs Python 3.10 or later and `git`, because [py-logkit](https://github.com/markbac/py-logkit) is installed from GitHub.
 
 On Python 3.13 the test suite and the checks below run in GitHub Actions (`.github/workflows/ci.yml`).
 
