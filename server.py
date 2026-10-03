@@ -28,13 +28,14 @@ parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard i
 parser.add_argument("--port", "-p", type=str, default="COM3", help="Initial COM port to connect on startup (default: COM3)")
 parser.add_argument("--baud", "-b", type=int, default=115200, help="Initial baud rate (default: 115200)")
 parser.add_argument("--db-path", type=str, default=None, help="SQLite database file (default: per-user data directory, or $QUECTEL_DASHBOARD_DB)")
+parser.add_argument("--retention-days", type=float, default=90, help="Delete history older than this many days (0 keeps everything, default: 90)")
 parser.add_argument("--no-file-log", action="store_true", help="Disable writing serial logs to disk file")
 args, _ = parser.parse_known_args()
 
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
 app.add_middleware(LocalOnlyMiddleware)
 try:
-    manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path)
+    manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path, retention_days=args.retention_days)
 except SchemaTooNewError as exc:
     sys.exit(f"ERROR: {exc}")
 
@@ -42,10 +43,16 @@ except SchemaTooNewError as exc:
 active_connections: List[WebSocket] = []
 loop = None
 
+def public_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """State as sent to browsers. Log lines travel as separate ``log`` events."""
+    return {key: value for key, value in state.items() if key != "logs"}
+
 def broadcast(event_type: str, data: Any):
     """Callback from SerialManager to broadcast updates over WebSockets."""
     if not active_connections:
         return
+    if event_type == "state":
+        data = public_state(data)
     message = json.dumps({"type": event_type, "data": data})
     if loop and loop.is_running():
         for connection in list(active_connections):
@@ -221,7 +228,7 @@ def shutdown_server():
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
-    await websocket.send_text(json.dumps({"type": "state", "data": manager.state}))
+    await websocket.send_text(json.dumps({"type": "state", "data": public_state(manager.state)}))
     try:
         while True:
             data = await websocket.receive_text()

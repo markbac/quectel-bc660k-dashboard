@@ -51,6 +51,10 @@ Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
 The database is created on first start if it does not exist. By default it lives in your per-user data directory (`%LOCALAPPDATA%\\quectel-bc660k-dashboard` on Windows, `~/Library/Application Support/quectel-bc660k-dashboard` on macOS, `~/.local/share/quectel-bc660k-dashboard` on Linux). Override it with `--db-path FILE` or the `QUECTEL_DASHBOARD_DB` environment variable. Database files are git-ignored.
 
+### Retention
+
+History older than 90 days is deleted at start-up and once a day. Change it with `--retention-days N` (`0` keeps everything).
+
 ### Schema versions
 
 The schema version is stored in SQLite's `PRAGMA user_version`. On start-up the dashboard creates a new database at the latest version, or runs any pending migrations in order, each in its own transaction. Before migrating an existing database it writes a copy next to it (`telemetry.db.bak-v<old version>`). A database written by a newer dashboard is refused with a clear message instead of being modified. Migrations only add things: data columns are never dropped automatically. To change the schema, append a function to `MIGRATIONS` in `db_manager.py`.

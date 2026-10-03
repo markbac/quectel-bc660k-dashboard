@@ -346,6 +346,26 @@ class DBManager:
             return dict(row)
         return dict(self.EMPTY_STATS)
 
+    def prune_older_than(self, days: float) -> int:
+        """Delete history older than ``days`` days and finished sessions with no rows.
+
+        A value of 0 or less disables pruning.
+
+        Returns:
+            The number of history rows deleted.
+        """
+        if days <= 0:
+            return 0
+        cutoff = time.time() - days * 86400
+        with closing(self._get_connection()) as conn, conn:
+            deleted = conn.execute("DELETE FROM signal_history WHERE unix_time < ?", (cutoff,)).rowcount
+            conn.execute("""
+                DELETE FROM sessions
+                WHERE ended_at IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM signal_history h WHERE h.session_id = sessions.id)
+            """)
+        return deleted
+
     def clear_history(self, iccid: Optional[str] = None, everything: bool = False) -> int:
         """Delete one SIM's records, or all records with ``everything=True``.
 
