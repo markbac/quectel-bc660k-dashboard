@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import time
@@ -19,7 +20,7 @@ import cli
 import instance
 from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
-from serial_manager import SerialManager
+from serial_manager import LOGGER_NAME, SerialManager
 from cell_location import CellLocator, CellLookupError, NoApiKey, CellNotFound
 from exporter import ExportConfig, Exporter
 from modem_replay import TranscriptModem
@@ -34,6 +35,30 @@ try:
     manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path, retention_days=args.retention_days)
 except SchemaTooNewError as exc:
     sys.exit(f"ERROR: {exc}")
+
+log = logging.getLogger(f"{LOGGER_NAME}.server")
+
+
+class _ManagerLogHandler(logging.Handler):
+    """Hand records to the manager's py-logkit logger.
+
+    The manager reconfigures its handlers when file logging is toggled, so
+    forwarding each record keeps uvicorn's output on whatever handlers are
+    current instead of holding stale ones.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        manager.py_logger.handle(record)
+
+
+def route_uvicorn_logs() -> None:
+    """Send uvicorn's server and access logs through py-logkit."""
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        target = logging.getLogger(name)
+        target.handlers = [_ManagerLogHandler()]
+        target.propagate = False
+        target.setLevel(logging.INFO)
+
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -318,13 +343,13 @@ def clear_history(all_sims: bool = Query(False, alias="all")):
 # --- Shutdown Endpoint ---
 @app.post("/api/shutdown")
 def shutdown_server():
-    print("\n[SYSTEM] Exit requested via Web UI. Shutting down cleanly...")
+    log.info("[SYSTEM] Exit requested via Web UI. Shutting down cleanly...")
     manager.disconnect()
     instance.remove_pid_file()
 
     def delayed_exit():
         time.sleep(0.5)
-        print("[SYSTEM] Goodbye!")
+        log.info("[SYSTEM] Goodbye!")
         os._exit(0)
 
     threading.Thread(target=delayed_exit, daemon=True).start()
@@ -366,7 +391,7 @@ def setup_signal_handlers():
     def handle_signal(sig, frame):
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        print(f"\n[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Goodbye!")
+        log.info(f"[SYSTEM] Signal {sig} received (Ctrl+C / Terminal Interrupt). Goodbye!")
         try:
             manager.disconnect()
         except Exception:
@@ -378,7 +403,7 @@ def setup_signal_handlers():
         signal.signal(signal.SIGINT, handle_signal)
         signal.signal(signal.SIGTERM, handle_signal)
     except Exception as e:
-        print(f"[SYSTEM] Signal handler notice: {e}")
+        log.warning(f"[SYSTEM] Signal handler notice: {e}")
 
 def main() -> None:
     """Start the dashboard server (console-script entry point)."""
@@ -387,26 +412,26 @@ def main() -> None:
     instance.write_pid_file()
     if args.record:
         manager.recorder = TranscriptRecorder(args.record)
-        print(f"[STARTUP] Recording AT exchanges to {args.record} (identifiers redacted).")
+        log.info(f"[STARTUP] Recording AT exchanges to {args.record} (identifiers redacted).")
 
     if args.demo:
-        print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
+        log.info("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
         manager.enable_demo_mode()
     elif args.replay:
         modem = TranscriptModem(load_transcript(args.replay))
         modem.start().close()
-        print(f"[STARTUP] Replaying {args.replay} on {modem.slave_name}...")
+        log.info(f"[STARTUP] Replaying {args.replay} on {modem.slave_name}...")
         manager.connect(modem.slave_name, args.baud)
     elif args.port == "auto":
-        print("[STARTUP] Probing serial ports for an AT modem...")
+        log.info("[STARTUP] Probing serial ports for an AT modem...")
         found = detect_at_port(bauds=(args.baud,))
         if found:
-            print(f"[STARTUP] Found modem on {found[0]} @ {found[1]} baud.")
+            log.info(f"[STARTUP] Found modem on {found[0]} @ {found[1]} baud.")
             manager.connect(*found)
         else:
-            print("[STARTUP] No port answered AT; choose one in the web UI.")
+            log.info("[STARTUP] No port answered AT; choose one in the web UI.")
     elif args.port:
-        print(f"[STARTUP] Connecting to serial port {args.port} @ {args.baud} baud...")
+        log.info(f"[STARTUP] Connecting to serial port {args.port} @ {args.baud} baud...")
         manager.connect(args.port, args.baud)
 
     loop = asyncio.new_event_loop()
@@ -414,14 +439,12 @@ def main() -> None:
 
     port_num = args.http_port
     url = cli.server_url(args.host, port_num)
-    print("\n=======================================================")
-    print(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
-    print(f"Baud Rate: {args.baud}")
-    print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
-    print(f"Database: {manager.db.db_path}")
-    print(f"Py-LogKit File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
-    print("Press Ctrl+C in terminal or click Exit in Web UI to stop")
-    print("=======================================================\n")
+    log.info(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
+    log.info(f"Baud rate: {args.baud}")
+    log.info(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
+    log.info(f"Database: {manager.db.db_path}")
+    log.info(f"File logging: {'ENABLED (' + manager.log_file_path + ')' if not args.no_file_log else 'DISABLED'}")
+    log.info("Press Ctrl+C in terminal or click Exit in Web UI to stop")
 
     if not args.no_browser:
         try:
@@ -429,12 +452,13 @@ def main() -> None:
         except Exception:
             pass
 
-    config = uvicorn.Config(app=app, host=args.host, port=port_num, loop="asyncio")
+    route_uvicorn_logs()
+    config = uvicorn.Config(app=app, host=args.host, port=port_num, loop="asyncio", log_config=None)
     server = uvicorn.Server(config)
     try:
         loop.run_until_complete(server.serve())
     except (KeyboardInterrupt, SystemExit):
-        print("\n[SYSTEM] Server process terminated.")
+        log.info("[SYSTEM] Server process terminated.")
         manager.disconnect()
 
 
