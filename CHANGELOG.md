@@ -11,7 +11,8 @@ A large reliability, security and feature release. Several changes are not backw
 - History is now scoped to the ICCID of the connected SIM. Older rows are assigned to the SIM they were recorded with where that is known.
 - The serving cell is read with `AT+QENG=0`, the documented BC660K-GL command, instead of `AT+QENG="servingcell"`.
 - The web server only accepts requests whose `Host` and `Origin` are the local machine.
-- `colorlog` is now a declared dependency, and `paho-mqtt` is optional (`pip install -e .[mqtt]`).
+- Logging uses the [py-logkit](https://github.com/markbac/py-logkit) package, installed from GitHub (it is not the `pylogkit` on PyPI). The old vendored copy is gone, `server.py` start-up, shutdown and uvicorn output now go through it instead of `print()`, and Python 3.10 or later is required.
+- `paho-mqtt` is optional (`pip install -e .[mqtt]`).
 
 ### Fixed
 

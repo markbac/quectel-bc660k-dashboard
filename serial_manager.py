@@ -4,7 +4,6 @@ import re
 import os
 import threading
 import random
-from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List, Optional
 import serial
 import serial.tools.list_ports
@@ -18,6 +17,7 @@ from pylogkit import setup_logging
 from transcript import TranscriptRecorder
 
 __version__ = "2.0.0"
+LOGGER_NAME = "QuectelManager"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 
 # Access technology values of +COPS (3GPP TS 27.007, as listed in the BC660K-GL manual).
@@ -142,13 +142,7 @@ class SerialManager:
         self.file_logging_enabled: bool = file_logging_enabled
         self.log_file_path: str = log_file_path or LOG_FILE_PATH
 
-        self.py_logger = setup_logging(
-            name="QuectelManager",
-            to_console=True,
-            to_file=self.file_logging_enabled,
-            file_path=self.log_file_path,
-            level="DEBUG"
-        )
+        self.py_logger = self._configure_logging()
         self.py_logger.info(f"Quectel BC660K Serial Manager v{self.VERSION} Initialized.")
 
         self.last_cops_op: str = "Unknown"
@@ -366,29 +360,26 @@ class SerialManager:
 
     def set_file_logging(self, enabled: bool):
         """Turn the on-disk serial log on or off at runtime."""
-        self._apply_file_logging(enabled)
         self.file_logging_enabled = enabled
+        self.py_logger = self._configure_logging()
         self.state["file_logging_enabled"] = enabled
         status_msg = "ENABLED" if enabled else "DISABLED"
         self.log(f"[CONFIG] Disk file logging {status_msg} ({self.log_file_path})", "INFO")
         self._notify("state", self.state)
 
-    def _apply_file_logging(self, enabled: bool):
-        """Attach or detach the rotating file handler on the logger."""
-        handlers = [h for h in self.py_logger.handlers if isinstance(h, RotatingFileHandler)]
-        if enabled and not handlers:
-            handler = RotatingFileHandler(
-                self.log_file_path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
-            )
-            handler.setLevel(logging.DEBUG)
-            handler.setFormatter(logging.Formatter(
-                "%(asctime)s [%(levelname)s] [%(name)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-            ))
-            self.py_logger.addHandler(handler)
-        elif not enabled:
-            for handler in handlers:
-                self.py_logger.removeHandler(handler)
-                handler.close()
+    def _configure_logging(self) -> logging.Logger:
+        """Build the py-logkit logger, with or without the rotating file.
+
+        Calling ``setup_logging`` again replaces the handlers and closes the
+        old ones, so this also serves to switch the file on or off at runtime.
+        """
+        return setup_logging(
+            name=LOGGER_NAME,
+            to_console=True,
+            to_file=self.file_logging_enabled,
+            file_path=self.log_file_path,
+            level="DEBUG",
+        )
 
     def set_psm_config(self, enabled: bool, t3412: str = "10100101", t3324: str = "00100100") -> str:
         """Configure PSM (Power Saving Mode) on Quectel BC660K."""

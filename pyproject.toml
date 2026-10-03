@@ -7,7 +7,7 @@ name = "quectel-bc660k-dashboard"
 dynamic = ["version"]
 description = "Signal and network web dashboard for the Quectel BC660K-GL NB-IoT module"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = [
     "fastapi>=0.100.0",
@@ -15,7 +15,7 @@ dependencies = [
     "pyserial>=3.5",
     "websockets>=11.0",
     "pydantic>=2.0.0",
-    "colorlog>=6.7",
+    "pylogkit @ git+https://github.com/markbac/py-logkit",
 ]
 
 [project.optional-dependencies]
@@ -33,7 +33,6 @@ py-modules = [
     "at_channel", "cell_location", "cli", "db_manager", "exporter", "instance", "modem_replay",
     "port_detect", "security", "serial_manager", "server", "timers", "transcript",
 ]
-packages = ["pylogkit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

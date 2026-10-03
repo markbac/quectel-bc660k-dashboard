@@ -9,7 +9,7 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 ## 🌟 Key Features
 
 - 📶 **Real-Time Signal Quality Telemetry**: Monitors **RSRP** (dBm), **RSRQ** (dB), **RSSI** (dBm), **SINR** (dB), and **CSQ** (0-31 scale) with live color-coded quality badges.
-- ⚡ **Py-LogKit Integration**: Features structured, colorized, timestamped, and file-backed logging powered by [`markbac/py-logkit`](https://github.com/markbac/py-logkit).
+- ⚡ **Py-LogKit Integration**: Features structured, colorized, timestamped, and file-backed logging powered by [`markbac/py-logkit`](https://github.com/markbac/py-logkit), installed from GitHub by `pip install -r requirements.txt`. Server start-up, shutdown and uvicorn access logs use the same handlers. Needs Python 3.10 or later.
 - 🔒 **Serial Port Lock Warning & Auto-Reclaim**: Detects if a COM port is locked by another process, emits warnings, and reclaims handles automatically.
 - 📡 **Scheduled Network Scan (`AT+COPS=?`)**: Runs a full cellular spectrum scan in an asynchronous non-blocking thread, at the interval chosen in the UI. The default is `Off` because a scan can occupy the modem for up to three minutes (a real BC660K-GL stayed silent for more than 35 s during one, so the dashboard waits up to 180 s and does not report the module as unresponsive meanwhile); choosing an interval starts the first scan immediately, and the Scan button starts one on demand.
 - ⚙️ **Configurable Polling Frequencies**: Web UI controls for Signal Poll Interval (`1s`, `2s`, `3s`, `5s`, `10s`) and Spectrum Scan Frequency (`Off`, `30s`, `60s`, `120s`, `300s`).
