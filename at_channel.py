@@ -130,7 +130,8 @@ class ATChannel:
 
     def _dispatch(self, text: str) -> None:
         for line in text.splitlines():
-            self._on_urc(line)
+            if line.strip():
+                self._on_urc(line)
 
     @staticmethod
     def _drain(port, quiet_sec: float = 0.0, max_sec: float = 0.0) -> str:
