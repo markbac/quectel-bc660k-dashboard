@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import serial
 
 import port_detect
+from modem_replay import TranscriptModem
 from tests.pty_modem import PtyModem
 
 
@@ -43,7 +44,26 @@ def test_answers_at_on_pty_modem():
 def test_silent_port_does_not_answer():
     modem = PtyModem({"AT": (5.0, "\r\nOK\r\n")})
     modem.start().close()
-    assert not port_detect.answers_at(modem.slave_name, 115200, wait=0.3)
+    assert not port_detect.answers_at(modem.slave_name, 115200, wait=0.3, attempts=1)
+
+
+def test_sleeping_module_answers_on_a_later_attempt():
+    """Real BC660K in deep sleep: blank line on the first AT, OK on the second (#94)."""
+    modem = TranscriptModem([
+        {"cmd": "AT", "reply": "\r\n", "delay": 0.1},
+        {"cmd": "AT", "reply": "\r\nOK\r\n", "delay": 0.02},
+    ])
+    modem.start().close()
+    assert port_detect.answers_at(modem.slave_name, 115200, wait=0.5)
+
+
+def test_single_attempt_misses_a_sleeping_module():
+    modem = TranscriptModem([
+        {"cmd": "AT", "reply": "\r\n", "delay": 0.1},
+        {"cmd": "AT", "reply": "\r\nOK\r\n", "delay": 0.02},
+    ])
+    modem.start().close()
+    assert not port_detect.answers_at(modem.slave_name, 115200, wait=0.5, attempts=1)
 
 
 def test_unopenable_port_does_not_answer():

@@ -46,7 +46,7 @@ On Python 3.13 the test suite and the checks below run in GitHub Actions (`.gith
 Launch the server. It does not connect to a port unless asked to:
 ```bash
 python server.py                            # choose or detect a port in the web UI
-python server.py --port auto                # probe every serial port for an AT modem
+python server.py --port auto                # probe every serial port for an AT modem (up to about 8 s per port, so a sleeping module is found)
 python server.py --port COM3 --baud 115200  # Windows
 python server.py --port /dev/ttyUSB0        # Linux (macOS: /dev/cu.usbserial-*)
 ```

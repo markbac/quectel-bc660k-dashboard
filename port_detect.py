@@ -13,7 +13,11 @@ import serial.tools.list_ports
 # USB vendor IDs of interfaces commonly used with the module: FTDI and Quectel.
 PREFERRED_VIDS = (0x0403, 0x2C7C)
 PROBE_BAUDS = (115200,)
-PROBE_WAIT_SECONDS = 0.6
+# A module in deep sleep answers its first ``AT`` with a blank line after
+# about two seconds and replies ``OK`` only to the next one, so each port gets a
+# few attempts with a wait long enough to cover that wake-up.
+PROBE_WAIT_SECONDS = 2.5
+PROBE_ATTEMPTS = 3
 
 
 def _is_preferred(port) -> bool:
@@ -31,21 +35,24 @@ def candidate_ports(ports: Optional[Iterable] = None) -> List[str]:
 
 
 def answers_at(device: str, baud: int, wait: float = PROBE_WAIT_SECONDS,
-               opener: Callable = serial.Serial) -> bool:
+               opener: Callable = serial.Serial, attempts: int = PROBE_ATTEMPTS) -> bool:
     """True if ``device`` replies ``OK`` to ``AT`` at ``baud``.
 
+    ``AT`` is sent up to ``attempts`` times, waiting ``wait`` seconds after each,
+    so a module that is asleep gets woken by the first and answers a later one.
     Ports that cannot be opened (busy, no permission) count as not answering.
     """
     try:
         with opener(device, baud, timeout=0.2, write_timeout=1.0) as link:
             link.reset_input_buffer()
-            link.write(b"AT\r\n")
-            deadline = time.monotonic() + wait
             reply = b""
-            while time.monotonic() < deadline:
-                reply += link.read(64)
-                if b"OK" in reply:
-                    return True
+            for _ in range(attempts):
+                link.write(b"AT\r\n")
+                deadline = time.monotonic() + wait
+                while time.monotonic() < deadline:
+                    reply += link.read(64)
+                    if b"OK" in reply:
+                        return True
     except (serial.SerialException, OSError):
         return False
     return False
