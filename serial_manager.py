@@ -204,7 +204,8 @@ class SerialManager:
                 "ip_address": "--",
                 "voltage": None,
                 "temperature": None,
-                "firmware": "--"
+                "firmware": "--",
+                "sleep_clock": None
             },
             "neighbour_cells": [],
             "networks_scan": [],
@@ -921,32 +922,40 @@ class SerialManager:
         threading.Thread(target=_scan_worker, daemon=True).start()
 
     def _poll_hardware_info(self):
-        """Read static identity and status information once after connecting."""
+        """Run the start-up profile: identity, SIM, power-saving state and network.
+
+        Called once after the modem first answers. Commands a particular
+        firmware does not support simply leave the corresponding field at its
+        placeholder.
+        """
+        self._send_at_cmd_raw("ATE0")  # echo off, so responses hold only the reply
+
+        # Module identity
         self._parse_ati(self._send_at_cmd_raw("ATI"))
-        self._parse_cpin(self._send_at_cmd_raw("AT+CPIN?"))
+        self._parse_cgmr(self._send_at_cmd_raw("AT+CGMR"))
         self._parse_imei(self._send_at_cmd_raw("AT+CGSN=1"))
 
-        iccid_resp = self._send_at_cmd_raw("AT+QCCID")
-        self._parse_iccid(iccid_resp)
+        # SIM
+        self._parse_cpin(self._send_at_cmd_raw("AT+CPIN?"))
+        self._parse_iccid(self._send_at_cmd_raw("AT+QCCID"))
         self._last_identity_check = time.monotonic()
+        self._parse_imsi(self._send_at_cmd_raw("AT+CIMI"))
 
-        imsi_resp = self._send_at_cmd_raw("AT+CIMI")
-        self._parse_imsi(imsi_resp)
-
-        cbc_resp = self._send_at_cmd_raw("AT+CBC")
-        self._parse_cbc(cbc_resp)
-
+        # Supply and temperature
+        self._parse_cbc(self._send_at_cmd_raw("AT+CBC"))
         # Not every firmware supports AT+QTEMP. Only keep polling it if the
         # first query returned a value.
         self._parse_qtemp(self._send_at_cmd_raw("AT+QTEMP"))
         self._temp_supported = self.state["system_info"]["temperature"] is not None
 
-        cgdcont_resp = self._send_at_cmd_raw("AT+CGDCONT?")
-        self._parse_cgdcont(cgdcont_resp)
+        # Power saving: read what the module is configured to do
+        self._parse_cpsms(self._send_at_cmd_raw("AT+CPSMS?"))
+        self._parse_cedrxs(self._send_at_cmd_raw("AT+CEDRXS?"))
+        self._parse_qsclk(self._send_at_cmd_raw("AT+QSCLK?"))
 
-        cgatt_resp = self._send_at_cmd_raw("AT+CGATT?")
-        self._parse_cgatt(cgatt_resp)
-
+        # Packet domain
+        self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
+        self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
         self._parse_cgpaddr(self._send_at_cmd_raw("AT+CGPADDR=1"))
 
     def _poll_once(self):
@@ -1122,6 +1131,38 @@ class SerialManager:
         match = re.search(r"\+QTEMP:\s*(-?\d+)(?:,\s*(-?\d+))?", resp)
         if match:
             self.state["system_info"]["temperature"] = int(match.group(2) or match.group(1))
+
+    def _parse_cgmr(self, resp: str):
+        """Use the ``AT+CGMR`` revision when ``ATI`` did not provide one."""
+        if self.state["system_info"]["firmware"] != "--":
+            return
+        for line in resp.splitlines():
+            line = line.strip()
+            if line and line != "OK" and not line.startswith(("AT", "+", "ERROR")):
+                self.state["system_info"]["firmware"] = line.split(":", 1)[-1].strip()
+                return
+
+    def _parse_cedrxs(self, resp: str):
+        """Update ``edrx_info`` from an ``AT+CEDRXS?`` read-back.
+
+        The module lists one ``+CEDRXS: <AcT>,"<requested cycle>"`` line per
+        configured access technology. No line means eDRX is not configured.
+        """
+        match = re.search(r'\+CEDRXS:\s*\d+,\s*"([01]{4})"', resp)
+        info = self.state["edrx_info"]
+        if match:
+            info["enabled"] = True
+            info["value"] = match.group(1)
+            info["status"] = "eDRX Enabled"
+        elif self.is_ok(resp):
+            info["enabled"] = False
+            info["status"] = "eDRX Disabled"
+
+    def _parse_qsclk(self, resp: str):
+        """Store the slow-clock (light sleep) setting from ``+QSCLK: <n>``."""
+        match = re.search(r"\+QSCLK:\s*(\d+)", resp)
+        if match:
+            self.state["system_info"]["sleep_clock"] = int(match.group(1))
 
     def _parse_iccid(self, resp: str):
         match = re.search(r"(?:89\d{16,18}\w?)", resp)

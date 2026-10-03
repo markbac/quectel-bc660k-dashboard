@@ -595,6 +595,13 @@ document.addEventListener("DOMContentLoaded", () => {
         tempItem.classList.toggle("hidden", !hasTemp);
         tempVal.textContent = hasTemp ? `${sys.temperature} \u00b0C` : "--";
 
+        // Power saving state, as reported by the module
+        const psm = state.psm_info || {};
+        if (psmStatusBadge) {
+            psmStatusBadge.textContent = isCommunicated ? (psm.status || "PSM Disabled") : "Awaiting Modem";
+            psmStatusBadge.className = isCommunicated && psm.enabled ? "badge badge-good" : "badge badge-warning";
+        }
+
         // Serving Cell Details
         const sc = state.serving_cell || {};
         ratBadge.textContent = isCommunicated ? (sc.rat || "NB-IoT") : "--";
