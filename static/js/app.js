@@ -609,6 +609,17 @@ document.addEventListener("DOMContentLoaded", () => {
             psmStatusBadge.className = isCommunicated && psm.enabled ? "badge badge-good" : "badge badge-warning";
         }
 
+        const psmRequestedVal = document.getElementById("psmRequestedVal");
+        const psmGrantedVal = document.getElementById("psmGrantedVal");
+        const edrxGrantedVal = document.getElementById("edrxGrantedVal");
+        const edrx = state.edrx_info || {};
+        psmRequestedVal.textContent = isCommunicated ? (psm.requested_text || "--") : "--";
+        psmGrantedVal.textContent = isCommunicated
+            ? `${psm.granted_text || "--"}${psm.mismatch ? " (differs from request)" : ""}` : "--";
+        psmGrantedVal.style.color = psm.mismatch ? "#f59e0b" : "";
+        edrxGrantedVal.textContent = isCommunicated && edrx.enabled
+            ? `${edrx.requested_text || "--"} / ${edrx.granted_text || "--"}${edrx.mismatch ? " (differs)" : ""}` : "--";
+
         // Serving Cell Details
         const sc = state.serving_cell || {};
         ratBadge.textContent = isCommunicated ? (sc.rat || "NB-IoT") : "--";
