@@ -31,8 +31,9 @@ function loadDashboard(options = {}) {
         send() {}
         close() {}
     };
-    w.fetch = async (url) => {
+    w.fetch = async (url, init) => {
         harness.fetches.push(String(url));
+        harness.lastBody = init && init.body ? JSON.parse(init.body) : null;
         return {
             ok: true,
             json: async () => ({
@@ -40,6 +41,9 @@ function loadDashboard(options = {}) {
                 history: options.history || [],
                 stats: { total_records: (options.history || []).length },
                 series: options.series || [],
+                config: options.exportConfig || {},
+                sent: 0,
+                results: options.exportResults || [],
                 awaiting_identity: Boolean(options.awaitingIdentity),
             }),
         };

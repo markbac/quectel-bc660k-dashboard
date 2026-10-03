@@ -175,6 +175,89 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // --- Remote export (MQTT / webhook) ---
+    const exportDialog = document.getElementById("exportDialog");
+    const exportFields = {
+        enabled: document.getElementById("exportEnabled"),
+        device_name: document.getElementById("exportDevice"),
+        interval: document.getElementById("exportInterval"),
+        webhook_url: document.getElementById("exportWebhook"),
+        webhook_degradation_only: document.getElementById("exportDegradationOnly"),
+        degradation_rsrp: document.getElementById("exportDegradation"),
+        mqtt_host: document.getElementById("exportMqttHost"),
+        mqtt_port: document.getElementById("exportMqttPort"),
+        mqtt_topic: document.getElementById("exportMqttTopic"),
+        mqtt_tls: document.getElementById("exportMqttTls"),
+    };
+    const exportStatus = document.getElementById("exportStatus");
+
+    function showExportStatus(data) {
+        document.getElementById("exportMqttNote").textContent = data.mqtt_available
+            ? "" : "(install paho-mqtt to enable)";
+        const parts = [`Sent: ${data.sent}`];
+        if (data.last_success) parts.push(`last delivered ${data.last_success}`);
+        if (data.last_error) parts.push(`last error: ${data.last_error}`);
+        exportStatus.textContent = parts.join(", ");
+    }
+
+    async function loadExportSettings() {
+        try {
+            const res = await fetch("/api/export");
+            if (!res.ok) return;
+            const data = await res.json();
+            Object.entries(exportFields).forEach(([key, input]) => {
+                if (input.type === "checkbox") input.checked = Boolean(data.config[key]);
+                else input.value = data.config[key];
+            });
+            showExportStatus(data);
+        } catch (err) {
+            console.error("Error loading export settings:", err);
+        }
+    }
+
+    function readExportForm() {
+        const body = {};
+        Object.entries(exportFields).forEach(([key, input]) => {
+            if (input.type === "checkbox") body[key] = input.checked;
+            else if (input.type === "number") body[key] = parseInt(input.value, 10) || 0;
+            else body[key] = input.value.trim();
+        });
+        return body;
+    }
+
+    document.getElementById("exportBtn").addEventListener("click", async () => {
+        await loadExportSettings();
+        exportDialog.showModal();
+    });
+    document.getElementById("exportCancel").addEventListener("click", () => exportDialog.close());
+    document.getElementById("exportForm").addEventListener("submit", async () => {
+        try {
+            await fetch("/api/export", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(readExportForm())
+            });
+        } catch (err) {
+            alert(`Could not save export settings: ${err.message}`);
+        }
+    });
+    document.getElementById("exportTest").addEventListener("click", async () => {
+        try {
+            await fetch("/api/export", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(readExportForm())
+            });
+            const res = await fetch("/api/export/test", { method: "POST" });
+            const data = await res.json();
+            exportStatus.textContent = res.ok
+                ? data.results.map(r => `${r.sink}: ${r.ok ? "ok" : "failed (" + r.error + ")"}`).join("; ")
+                : data.detail;
+        } catch (err) {
+            exportStatus.textContent = `Test failed: ${err.message}`;
+        }
+    });
+
     // Chart window: "live" plots the last 25 polls as they arrive; the other
     // windows plot a downsampled series fetched from the database on demand.
     const chartWindowSelect = document.getElementById("chartWindow");

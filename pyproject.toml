@@ -19,6 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mqtt = ["paho-mqtt>=2.0"]
 dev = ["pytest>=8.0", "httpx>=0.27", "pyflakes>=3.0"]
 
 [project.scripts]
@@ -26,8 +27,8 @@ quectel-dashboard = "server:main"
 
 [tool.setuptools]
 py-modules = [
-    "at_channel", "cli", "db_manager", "instance", "port_detect",
-    "security", "serial_manager", "server", "timers",
+    "at_channel", "cli", "db_manager", "exporter", "instance", "modem_replay",
+    "port_detect", "security", "serial_manager", "server", "timers", "transcript",
 ]
 packages = ["pylogkit"]
 
