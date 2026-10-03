@@ -35,3 +35,16 @@ def test_unknown_options_are_ignored():
 ])
 def test_server_url(host, port, url):
     assert cli.server_url(host, port) == url
+
+
+def test_package_version_has_a_single_source():
+    import re
+
+    import serial_manager
+
+    with open("pyproject.toml", encoding="utf-8") as handle:
+        text = handle.read()
+    assert 'dynamic = ["version"]' in text
+    assert re.fullmatch(r"\d+\.\d+\.\d+", serial_manager.__version__)
+    with open("CHANGELOG.md", encoding="utf-8") as handle:
+        assert f"## {serial_manager.__version__} " in handle.read()
