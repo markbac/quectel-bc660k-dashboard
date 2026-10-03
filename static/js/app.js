@@ -76,6 +76,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const scanLoading = document.getElementById("scanLoading");
     const scanElapsed = document.getElementById("scanElapsed");
     const scanError = document.getElementById("scanError");
+    const registrationMsg = document.getElementById("registrationMsg");
+    const deregisterBtn = document.getElementById("deregisterBtn");
+    const registerAutoBtn = document.getElementById("registerAutoBtn");
     const networksTableBody = document.getElementById("networksTableBody");
 
     // Terminal & Disk Log Toggle
@@ -1038,10 +1041,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (state.is_scanning) {
             scanLoading.classList.remove("hidden");
             scanBtn.disabled = true;
+            deregisterBtn.disabled = registerAutoBtn.disabled = true;
             startScanClock();
         } else {
             scanLoading.classList.add("hidden");
             scanBtn.disabled = false;
+            deregisterBtn.disabled = registerAutoBtn.disabled = false;
             stopScanClock();
         }
         scanError.textContent = state.scan_error || "";
@@ -1060,11 +1065,12 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td><strong>${escapeHtml(net.long_name)}</strong>${net.short_name && net.short_name !== net.long_name ? ` (${escapeHtml(net.short_name)})` : ""}</td>
                         <td>${escapeHtml(net.plmn)}</td>
                         <td>${escapeHtml(net.act)}</td>
+                        <td>${net.status === "Forbidden" ? "" : `<button class="btn btn-sm btn-outline register-net" data-plmn="${escapeHtml(net.plmn)}" data-act="${escapeHtml(net.act_code ?? 9)}">Register</button>`}</td>
                     </tr>
                 `;
             }).join("");
         } else if (!isCommunicated) {
-            networksTableBody.innerHTML = `<tr><td colspan="4" class="empty-state">Awaiting modem communication...</td></tr>`;
+            networksTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">Awaiting modem communication...</td></tr>`;
         }
 
         // Push data to Live Trend Chart only if signal data present
@@ -1111,6 +1117,37 @@ document.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.error("Scan error:", err);
         }
+    });
+
+    // Register or deregister: AT+COPS=2, =0 or =1,2,"<plmn>",<act>.
+    async function sendRegistration(body) {
+        registrationMsg.textContent = "Sending to the module...";
+        registrationMsg.classList.remove("hidden");
+        try {
+            const res = await fetch("/api/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                registrationMsg.textContent = data.detail || "The request was refused.";
+            } else if (data.status === "ok") {
+                registrationMsg.textContent = "Done. The module is now changing network; status updates shortly.";
+            } else {
+                registrationMsg.textContent = "The module refused the command.";
+            }
+        } catch (err) {
+            registrationMsg.textContent = "Could not reach the dashboard server.";
+        }
+    }
+
+    deregisterBtn.addEventListener("click", () => sendRegistration({ action: "deregister" }));
+    registerAutoBtn.addEventListener("click", () => sendRegistration({ action: "auto" }));
+    networksTableBody.addEventListener("click", (event) => {
+        const button = event.target.closest(".register-net");
+        if (!button) return;
+        sendRegistration({ action: "manual", plmn: button.dataset.plmn, act: parseInt(button.dataset.act, 10) || 9 });
     });
 
     // Console Logging

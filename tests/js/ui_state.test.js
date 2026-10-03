@@ -180,3 +180,36 @@ test("the page does not name an operator it has not detected (#102)", () => {
     assert.strictEqual(h.document.getElementById("apnInput").value, "");
     assert.doesNotMatch(h.document.body.innerHTML, /vodafone/i);
 });
+
+test("register and deregister buttons post to /api/register (#103)", async () => {
+    const h = loadDashboard();
+    h.push(fullState);
+    h.document.getElementById("deregisterBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(h.fetches.some((u) => u.includes("/api/register")));
+    assert.deepStrictEqual(h.lastBody, { action: "deregister" });
+    h.document.getElementById("registerAutoBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(h.lastBody, { action: "auto" });
+});
+
+test("a scanned network gets a Register button that selects its PLMN, forbidden ones do not", async () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, networks_scan: [
+        { status: "Available", long_name: "Vodafone UK", short_name: "", plmn: "23415", act: "NB-IoT", act_code: 9 },
+        { status: "Forbidden", long_name: "X", short_name: "", plmn: "23420", act: "NB-IoT", act_code: 9 },
+    ] });
+    const buttons = h.document.querySelectorAll(".register-net");
+    assert.strictEqual(buttons.length, 1);
+    buttons[0].click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(h.lastBody, { action: "manual", plmn: "23415", act: 9 });
+});
+
+test("registration buttons are disabled during a scan", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, is_scanning: true });
+    assert.ok(h.document.getElementById("deregisterBtn").disabled);
+    h.push({ ...fullState, is_scanning: false });
+    assert.ok(!h.document.getElementById("deregisterBtn").disabled);
+});

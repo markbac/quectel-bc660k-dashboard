@@ -107,6 +107,11 @@ class APNRequest(BaseModel):
     pdp_type: str = "IP"
     cid: int = 1
 
+class RegistrationRequest(BaseModel):
+    action: str
+    plmn: Optional[str] = None
+    act: int = 9
+
 class PSMRequest(BaseModel):
     enabled: bool
     t3412: Optional[str] = "10100101"
@@ -262,6 +267,19 @@ def scan_networks():
         raise HTTPException(status_code=400, detail="Serial port not connected")
     manager.trigger_async_cops_scan()
     return {"status": "ok", "message": "Async network scan triggered"}
+
+@app.post("/api/register")
+def register(req: RegistrationRequest):
+    """Deregister (``deregister``), register automatically (``auto``) or on one PLMN (``manual``)."""
+    if not manager.is_connected:
+        raise HTTPException(status_code=400, detail="Serial port not connected")
+    try:
+        resp = manager.set_registration(req.action, req.plmn, req.act)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"status": "ok" if "OK" in resp else "error", "response": resp}
 
 # --- SQLite History & Export Endpoints ---
 # History is scoped to the ICCID of the SIM in the connected board.

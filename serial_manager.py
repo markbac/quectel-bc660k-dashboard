@@ -889,6 +889,47 @@ class SerialManager:
         with self.lock:
             return self._send_at_cmd_raw(cmd, timeout_sec=timeout_for(cmd, default=30.0))
 
+    def set_registration(self, action: str, plmn: Optional[str] = None, act: int = 9) -> str:
+        """Deregister from, or register on, a network with ``AT+COPS=``.
+
+        :param action: ``"deregister"`` (``AT+COPS=2``), ``"auto"`` (``AT+COPS=0``)
+            or ``"manual"`` (``AT+COPS=1,2,"<plmn>",<act>``).
+        :param plmn: five or six digit PLMN, required for ``"manual"``.
+        :param act: access technology, 9 for NB-IoT.
+        :returns: the module's reply, or ``"OK"`` in demo mode.
+        :raises ValueError: for an unknown action or a malformed PLMN.
+        :raises RuntimeError: while a carrier scan is running, because the module
+            cannot take another operator command until it finishes.
+        """
+        if action == "deregister":
+            command = "AT+COPS=2"
+        elif action == "auto":
+            command = "AT+COPS=0"
+        elif action == "manual":
+            if not plmn or not re.fullmatch(r"\d{5,6}", plmn):
+                raise ValueError("A manual registration needs a 5 or 6 digit PLMN.")
+            command = f'AT+COPS=1,2,"{plmn}",{int(act)}'
+        else:
+            raise ValueError(f"Unknown registration action '{action}'.")
+        if self.state["is_scanning"]:
+            raise RuntimeError("A carrier scan is running; wait for it to finish.")
+
+        self.log(f"[REGISTRATION] {action}: {command}", "INFO")
+        if self.is_demo:
+            self.log("[REGISTRATION] Demo mode: nothing sent to a module.", "INFO")
+            return "OK"
+        with self.lock:
+            # The module can stay quiet for a while while it changes network.
+            self._scan_in_progress = True
+            try:
+                resp = self._send_at_cmd_raw(command)
+                self._parse_cops_query(self._send_at_cmd_raw("AT+COPS?"))
+                self._parse_cereg_query(self._send_at_cmd_raw("AT+CEREG?"))
+            finally:
+                self._scan_in_progress = False
+        self._notify("state", self.state)
+        return resp
+
     def trigger_async_cops_scan(self):
         if self.state["is_scanning"]:
             return
@@ -1472,6 +1513,7 @@ class SerialManager:
                 "long_name": long_name,
                 "short_name": short_name,
                 "plmn": plmn,
+                "act_code": act_code,
                 "act": COPS_ACT_NAMES.get(act_code, "Unknown" if act_code is None else f"AcT {act_code}")
             })
         return results
