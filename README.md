@@ -45,6 +45,8 @@ python server.py --port COM3 --baud 115200
 ```
 Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
+> **Note:** after powering the evaluation board, press the **RESET** button to wake the modem. Until the modem answers, the status badge reads "Connecting ... press RESET on the board if just powered" and the log shows a `[HINT]` line. The dashboard keeps probing with a plain `AT` and loads the module details as soon as it replies. If PSM is enabled the module can also go quiet later; the same hint is shown.
+
 ---
 
 ## 🗄️ Database Location

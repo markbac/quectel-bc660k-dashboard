@@ -73,6 +73,13 @@ DEMO_ICCID = "DEMO-SIMULATED-SIM"
 class SerialManager:
     VERSION = __version__
     IDENTITY_RECHECK_SECONDS = 60.0
+    PROBE_TRIES = 3
+    PROBE_TIMEOUT = 1.5
+    WAKE_HINT = (
+        "[HINT] Modem is not responding. If the board was just powered, press the RESET "
+        "button on the evaluation board to wake the modem. If PSM is enabled, the module "
+        "may be asleep."
+    )
     ATTACH_CHECKS = 5
     # Context ID used by the documented AT+QPING / AT+QIDNSGIP examples.
     PING_CONTEXT_ID = 0
@@ -137,6 +144,8 @@ class SerialManager:
         self.last_cereg_stat: str = "Unknown"
         self._temp_supported: bool = False
         self._last_identity_check: float = 0.0
+        self._wake_hint_shown: bool = False
+        self._hardware_info_loaded: bool = False
         self._session_id: Optional[int] = None
         self._session_iccid: Optional[str] = None
 
@@ -150,6 +159,7 @@ class SerialManager:
             "baudrate": 115200,
             "mode": "DISCONNECTED",
             "hardware_communicated": False,
+            "modem_responding": False,
             "file_logging_enabled": self.file_logging_enabled,
             "telemetry_interval": self.telemetry_interval,
             "cops_scan_interval": self.cops_scan_interval,
@@ -634,6 +644,8 @@ class SerialManager:
         with self.lock:
             try:
                 self.log(f"[PORT ATTEMPT] Opening {port} @ {baudrate} baud...", "INFO")
+                self._wake_hint_shown = False
+                self._hardware_info_loaded = False
                 try:
                     self.ser = serial.Serial(port, baudrate, timeout=1.5)
                 except serial.SerialException as e:
@@ -655,7 +667,11 @@ class SerialManager:
                 self.running = True
                 self.log(f"[SUCCESS] Serial port {port} opened successfully @ {baudrate} baud.", "INFO")
 
-                self._poll_hardware_info()
+                if self._probe_modem():
+                    self._poll_hardware_info()
+                    self._hardware_info_loaded = True
+                else:
+                    self.log("[CONNECT] No answer to AT yet; will keep checking in the background.", "WARNING")
 
                 self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
                 self.poll_thread.start()
@@ -732,6 +748,23 @@ class SerialManager:
     _FINAL_RESULT = re.compile(r"(?m)^(?:OK|ERROR|\+CME ERROR:.*|\+CMS ERROR:.*)\s*$")
     # Unsolicited result codes that may be interleaved with a response.
     _URC_PREFIXES = ("+CEREG", "+CSCON", "+QNBIOTEVENT", "+CGEV", "+CREG", "+CGREG", "+CPIN", "+PSM_EINT")
+
+    def _show_wake_hint(self):
+        """Tell the user, once per silence, how to wake the modem."""
+        if not self._wake_hint_shown:
+            self._wake_hint_shown = True
+            self.log(self.WAKE_HINT, "WARNING")
+
+    def _probe_modem(self, tries: Optional[int] = None) -> bool:
+        """Send ``AT`` a few times to see whether the modem answers.
+
+        A module waking from sleep can lose the first character, so a single
+        failed attempt does not mean it is silent. The caller must hold the lock.
+        """
+        for _ in range(tries or self.PROBE_TRIES):
+            if self.is_ok(self._send_at_cmd_raw("AT", timeout_sec=self.PROBE_TIMEOUT)):
+                return True
+        return False
 
     def _drain_input(self, quiet_sec: float = 0.0, max_sec: float = 0.0) -> str:
         """Read and discard pending serial input.
@@ -829,11 +862,15 @@ class SerialManager:
                     self.log(f"[LATE] Discarded late output after timeout: {late.strip()!r}", "WARNING")
                 if not response:
                     self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
+                    self.state["modem_responding"] = False
+                    self._show_wake_hint()
                     return "ERROR: Timeout"
 
             if not self.state.get("hardware_communicated", False):
                 self.state["hardware_communicated"] = True
                 self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
+            self.state["modem_responding"] = True
+            self._wake_hint_shown = False
 
             response = self._split_urcs(cmd, response)
             self.log(f"RX< {response.strip()}", "RX")
@@ -920,6 +957,14 @@ class SerialManager:
         instead of waiting for the whole cycle. The cycle stops at the first
         timeout so an unresponsive modem is not asked for every command.
         """
+        if not self._hardware_info_loaded:
+            # Back off to a cheap probe until the modem answers.
+            with self.lock:
+                if not self.running or not self._probe_modem(tries=1):
+                    return
+                self._poll_hardware_info()
+                self._hardware_info_loaded = True
+
         steps = [
             ("AT+CSQ", self._parse_csq),
             ("AT+CESQ", self._parse_cesq),

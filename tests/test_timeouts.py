@@ -55,6 +55,7 @@ def test_console_commands_get_a_generous_default(monkeypatch, manager):
 def test_poll_cycle_stops_at_first_timeout(manager, monkeypatch):
     monkeypatch.setattr(serial_manager, "AT_TIMEOUTS", (("AT+CSQ", 0.2),))
     manager.running = True
+    manager._hardware_info_loaded = True
     manager.ser = FakeSerial({"AT+CSQ": ""})
 
     manager._poll_once()
