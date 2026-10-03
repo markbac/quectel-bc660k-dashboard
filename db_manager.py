@@ -83,6 +83,35 @@ def _migration_3_scope_by_iccid(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE signal_history SET imsi = NULL")
 
 
+def _migration_4_sessions(conn: sqlite3.Connection) -> None:
+    """Version 4: record which hardware produced each reading.
+
+    A session is one continuous run against one SIM. Existing rows are
+    grouped into one session per ICCID so nothing is left unattributed.
+    """
+    conn.execute("""
+        CREATE TABLE sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            iccid TEXT NOT NULL,
+            imei TEXT,
+            firmware TEXT,
+            started_at REAL NOT NULL,
+            ended_at REAL
+        )
+    """)
+    conn.execute("ALTER TABLE signal_history ADD COLUMN session_id INTEGER REFERENCES sessions(id)")
+    conn.execute("CREATE INDEX idx_session ON signal_history(session_id)")
+    conn.execute("""
+        INSERT INTO sessions (iccid, started_at, ended_at)
+        SELECT iccid, COALESCE(MIN(unix_time), 0), MAX(unix_time)
+        FROM signal_history GROUP BY iccid
+    """)
+    conn.execute("""
+        UPDATE signal_history
+        SET session_id = (SELECT id FROM sessions WHERE sessions.iccid = signal_history.iccid)
+    """)
+
+
 # Ordered list of schema migrations. The position (1-based) is the schema
 # version stored in ``PRAGMA user_version``. Append new migrations; never edit
 # or reorder existing ones, and never drop data columns automatically.
@@ -90,6 +119,7 @@ MIGRATIONS: List[Callable[[sqlite3.Connection], None]] = [
     _migration_1_create_history,
     _migration_2_iccid_index,
     _migration_3_scope_by_iccid,
+    _migration_4_sessions,
 ]
 
 
@@ -172,11 +202,46 @@ class DBManager:
         """True for a real SIM identity (not empty and not the ``--`` placeholder)."""
         return bool(iccid) and iccid != "--"
 
-    def log_record(self, state: Dict[str, Any]) -> bool:
+    def start_session(self, iccid: str, imei: Optional[str] = None, firmware: Optional[str] = None) -> int:
+        """Record the start of a run against one SIM and return its id."""
+        with closing(self._get_connection()) as conn, conn:
+            cursor = conn.execute(
+                "INSERT INTO sessions (iccid, imei, firmware, started_at) VALUES (?, ?, ?, ?)",
+                (iccid, imei if imei != "--" else None, firmware if firmware != "--" else None, time.time()),
+            )
+            return cursor.lastrowid
+
+    def end_session(self, session_id: Optional[int]) -> None:
+        """Mark a session as finished (no-op for None or an already ended session)."""
+        if session_id is None:
+            return
+        with closing(self._get_connection()) as conn, conn:
+            conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE id = ? AND ended_at IS NULL",
+                (time.time(), session_id),
+            )
+
+    def get_sessions(self, iccid: Optional[str], limit: int = 50) -> List[Dict[str, Any]]:
+        """Sessions for one SIM, newest first, with their row counts."""
+        if not self.is_valid_iccid(iccid):
+            return []
+        with closing(self._get_connection()) as conn:
+            rows = conn.execute("""
+                SELECT s.id, s.iccid, s.imei, s.firmware, s.started_at, s.ended_at,
+                       (SELECT COUNT(*) FROM signal_history h WHERE h.session_id = s.id) AS records
+                FROM sessions s WHERE s.iccid = ? ORDER BY s.id DESC LIMIT ?
+            """, (iccid, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def log_record(self, state: Dict[str, Any], session_id: Optional[int] = None) -> bool:
         """Log current signal and cell metrics into SQLite.
 
         A row is only written when the modem has answered (or demo mode is
         on), the SIM's ICCID is known and signal values are present.
+
+        Args:
+            state: The manager's state dictionary.
+            session_id: The session the row belongs to (see ``start_session``).
 
         Returns:
             True if a row was written.
@@ -197,8 +262,8 @@ class DBManager:
                 INSERT INTO signal_history (
                     unix_time, rssi, csq, rsrp, rsrq, sinr, ber, quality_label,
                     operator, mcc, mnc, cell_id, pci, earfcn, band, tac,
-                    ip_address, voltage, temperature, iccid
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ip_address, voltage, temperature, iccid, session_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 now,
                 sig.get("rssi"),
@@ -220,6 +285,7 @@ class DBManager:
                 sys_info.get("voltage"),
                 sys_info.get("temperature"),
                 iccid,
+                session_id,
             ))
         return True
 

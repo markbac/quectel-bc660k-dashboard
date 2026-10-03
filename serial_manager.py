@@ -132,6 +132,8 @@ class SerialManager:
         self.last_cereg_stat: str = "Unknown"
         self._temp_supported: bool = False
         self._last_identity_check: float = 0.0
+        self._session_id: Optional[int] = None
+        self._session_iccid: Optional[str] = None
 
         # Current state cache
         self.state = self._get_initial_state()
@@ -214,6 +216,27 @@ class SerialManager:
         """ICCID of the connected SIM, or None until it is known."""
         iccid = self.state["sim_info"]["iccid"]
         return iccid if DBManager.is_valid_iccid(iccid) else None
+
+    def _update_session(self):
+        """Keep the database session in step with the connected SIM.
+
+        A new session starts when a SIM becomes known or changes, and the
+        previous one is closed.
+        """
+        iccid = self.current_iccid
+        if iccid == self._session_iccid:
+            return
+        self.db.end_session(self._session_id)
+        self._session_id = None
+        self._session_iccid = iccid
+        if iccid is not None:
+            info = self.state["system_info"]
+            self._session_id = self.db.start_session(iccid, info.get("imei"), info.get("firmware"))
+
+    def _log_history(self):
+        """Write one history row for the current state, if it qualifies."""
+        self._update_session()
+        self.db.log_record(self.state, self._session_id)
 
     def update_settings(self, telemetry_interval: Optional[int] = None, cops_scan_interval: Optional[int] = None):
         if telemetry_interval is not None and telemetry_interval >= 1:
@@ -667,6 +690,9 @@ class SerialManager:
     def _reset_locked(self):
         """Close the port and reset state. The caller must hold ``self.lock``."""
         self.running = False
+        self.db.end_session(self._session_id)
+        self._session_id = None
+        self._session_iccid = None
         old_port = self.port
         if self.ser and self.ser.is_open:
             try:
@@ -928,7 +954,7 @@ class SerialManager:
                     self.trigger_async_cops_scan()
 
                 if time.time() - last_db_log >= 5.0:
-                    self.db.log_record(self.state)
+                    self._log_history()
                     last_db_log = time.time()
 
                 self._notify("state", self.state)
@@ -975,7 +1001,7 @@ class SerialManager:
                 self.trigger_async_cops_scan()
 
             if time.time() - last_db_log >= 4.0:
-                self.db.log_record(self.state)
+                self._log_history()
                 last_db_log = time.time()
 
             self._notify("state", self.state)
