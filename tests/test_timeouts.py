@@ -1,8 +1,8 @@
 """Tests for the per-command timeout table and its users."""
 import pytest
 
-import serial_manager
-from serial_manager import timeout_for
+import at_channel
+from at_channel import timeout_for
 from tests.fake_serial import FakeSerial
 from tests.pty_modem import PtyModem
 
@@ -18,8 +18,8 @@ from tests.pty_modem import PtyModem
     ("AT+QENG=0", 15.0),
     ("AT+CGATT=1", 70.0),
     ("AT+COPS=?", 35.0),
-    ("AT+CGATT?", serial_manager.DEFAULT_AT_TIMEOUT),
-    ("AT+UNKNOWN", serial_manager.DEFAULT_AT_TIMEOUT),
+    ("AT+CGATT?", at_channel.DEFAULT_AT_TIMEOUT),
+    ("AT+UNKNOWN", at_channel.DEFAULT_AT_TIMEOUT),
 ])
 def test_timeout_table(cmd, expected):
     assert timeout_for(cmd) == expected
@@ -27,11 +27,11 @@ def test_timeout_table(cmd, expected):
 
 def test_none_of_the_documented_commands_is_below_its_maximum():
     """Regression test for #26: everything used a flat 2 s."""
-    assert min(seconds for _, seconds in serial_manager.AT_TIMEOUTS) >= 5.0
+    assert min(seconds for _, seconds in at_channel.AT_TIMEOUTS) >= 5.0
 
 
 def test_default_timeout_comes_from_the_table(manager, monkeypatch):
-    monkeypatch.setattr(serial_manager, "AT_TIMEOUTS", (("AT+CSQ", 1.5),))
+    monkeypatch.setattr(at_channel, "AT_TIMEOUTS", (("AT+CSQ", 1.5),))
     modem = PtyModem({"AT+CSQ": (0.8, "\r\n+CSQ: 14,0\r\n\r\nOK\r\n")})
     manager.ser = modem.start()
     try:
@@ -53,7 +53,7 @@ def test_console_commands_get_a_generous_default(monkeypatch, manager):
 
 
 def test_poll_cycle_stops_at_first_timeout(manager, monkeypatch):
-    monkeypatch.setattr(serial_manager, "AT_TIMEOUTS", (("AT+CSQ", 0.2),))
+    monkeypatch.setattr(at_channel, "AT_TIMEOUTS", (("AT+CSQ", 0.2),))
     manager.running = True
     manager._hardware_info_loaded = True
     manager.ser = FakeSerial({"AT+CSQ": ""})
