@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quectel-bc660k-dashboard"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Signal and network web dashboard for the Quectel BC660K-GL NB-IoT module"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -24,6 +24,9 @@ dev = ["pytest>=8.0", "httpx>=0.27", "pyflakes>=3.0"]
 
 [project.scripts]
 quectel-dashboard = "server:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "serial_manager.__version__" }
 
 [tool.setuptools]
 py-modules = [

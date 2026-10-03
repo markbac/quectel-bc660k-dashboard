@@ -17,7 +17,7 @@ from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
 from pylogkit import setup_logging
 from transcript import TranscriptRecorder
 
-__version__ = "1.2.0"
+__version__ = "2.0.0"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 
 # Access technology values of +COPS (3GPP TS 27.007, as listed in the BC660K-GL manual).
