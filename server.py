@@ -124,6 +124,7 @@ class EDRXRequest(BaseModel):
 class PingRequest(BaseModel):
     host: str = "8.8.8.8"
     count: Optional[int] = 4
+    timeout: Optional[int] = None  # seconds per echo; None uses the 20 s default
 
 class DNSRequest(BaseModel):
     domain: str = "leshan.eclipseprojects.io"
@@ -200,7 +201,7 @@ def config_edrx(req: EDRXRequest):
 
 @app.post("/api/ping")
 def run_ping(req: PingRequest):
-    res = manager.run_ping_benchmark(req.host or "8.8.8.8", req.count or 4)
+    res = manager.run_ping_benchmark(req.host or "8.8.8.8", req.count or 4, req.timeout)
     return {"status": "ok", "result": res, "state": manager.state}
 
 @app.post("/api/dns")

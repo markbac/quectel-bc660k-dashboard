@@ -213,3 +213,20 @@ test("registration buttons are disabled during a scan", () => {
     h.push({ ...fullState, is_scanning: false });
     assert.ok(!h.document.getElementById("deregisterBtn").disabled);
 });
+
+test("the ping request carries the timeout, 20 s by default (#111)", async () => {
+    const h = loadDashboard();
+    h.push(fullState);
+    assert.strictEqual(h.document.getElementById("pingTimeoutInput").value, "20");
+    h.document.getElementById("runPingBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(h.lastBody.timeout, 20);
+    h.document.getElementById("pingTimeoutInput").value = "45";
+    h.document.getElementById("runPingBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(h.lastBody.timeout, 45);
+    h.document.getElementById("pingTimeoutInput").value = "9999";
+    h.document.getElementById("runPingBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.strictEqual(h.lastBody.timeout, 255);
+});

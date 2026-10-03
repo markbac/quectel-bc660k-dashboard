@@ -88,7 +88,10 @@ class SerialManager:
     ATTACH_CHECKS = 5
     # Context ID used by the documented AT+QPING / AT+QIDNSGIP examples.
     PING_CONTEXT_ID = 0
-    PING_REPLY_TIMEOUT = 4  # seconds per echo, the documented default
+    # Seconds to wait for each echo. The module's own default is 4 s, but a real
+    # BC660K timed out on every packet at that setting (NB-IoT round trips are slow).
+    PING_REPLY_TIMEOUT = 20
+    PING_TIMEOUT_RANGE = (1, 255)  # documented limits
     DNS_TIMEOUT = 20.0
     ATTACH_CHECK_INTERVAL = 1.0
 
@@ -484,9 +487,17 @@ class SerialManager:
             self._notify("state", self.state)
             return resp
 
-    def run_ping_benchmark(self, host: str = "8.8.8.8", count: int = 4) -> Dict[str, Any]:
-        """Executes ICMP Ping test over modem PDP context."""
-        self.log(f"[PING TEST] Pinging '{host}' ({count} packets)...", "INFO")
+    def run_ping_benchmark(self, host: str = "8.8.8.8", count: int = 4,
+                           timeout: Optional[int] = None) -> Dict[str, Any]:
+        """Executes ICMP Ping test over modem PDP context.
+
+        :param host: address or name to ping.
+        :param count: number of echoes, 1 to 10.
+        :param timeout: seconds to wait for each echo (1 to 255), default ``PING_REPLY_TIMEOUT``.
+        """
+        low, high = self.PING_TIMEOUT_RANGE
+        timeout = max(low, min(high, int(timeout if timeout is not None else self.PING_REPLY_TIMEOUT)))
+        self.log(f"[PING TEST] Pinging '{host}' ({count} packets, {timeout} s timeout each)...", "INFO")
         
         if self.is_demo:
             time.sleep(1.2)
@@ -508,10 +519,10 @@ class SerialManager:
 
         count = max(1, min(10, int(count)))
         with self.lock:
-            cmd = f'AT+QPING={self.PING_CONTEXT_ID},"{host}",{self.PING_REPLY_TIMEOUT},{count}'
+            cmd = f'AT+QPING={self.PING_CONTEXT_ID},"{host}",{timeout},{count}'
             resp = self._send_at_cmd_raw(
                 cmd,
-                timeout_sec=count * self.PING_REPLY_TIMEOUT + 5.0,
+                timeout_sec=count * timeout + 5.0,
                 wait_for=self._PING_DONE,
             )
             res = self._parse_ping(resp, host, count)

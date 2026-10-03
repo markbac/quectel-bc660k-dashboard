@@ -644,11 +644,18 @@ document.addEventListener("DOMContentLoaded", () => {
     // Ping & DNS Handlers
     const pingHostInput = document.getElementById("pingHostInput");
     const runPingBtn = document.getElementById("runPingBtn");
+    const pingTimeoutInput = document.getElementById("pingTimeoutInput");
     const runDnsBtn = document.getElementById("runDnsBtn");
     const pingRttVal = document.getElementById("pingRttVal");
     const pingLossVal = document.getElementById("pingLossVal");
     const dnsResultVal = document.getElementById("dnsResultVal");
     const pingStatusBadge = document.getElementById("pingStatusBadge");
+
+    // Seconds to wait for each echo; NB-IoT round trips are slow, so the default is 20.
+    function pingTimeoutSeconds() {
+        const value = parseInt(pingTimeoutInput.value, 10);
+        return Number.isFinite(value) ? Math.max(1, Math.min(255, value)) : 20;
+    }
 
     if (runPingBtn) {
         runPingBtn.addEventListener("click", async () => {
@@ -661,7 +668,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const res = await fetch("/api/ping", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ host: host, count: 4 })
+                    body: JSON.stringify({ host: host, count: 4, timeout: pingTimeoutSeconds() })
                 });
                 const data = await res.json();
                 if (res.ok && data.result) {
