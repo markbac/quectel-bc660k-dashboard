@@ -114,6 +114,7 @@ The parsers live in `drivers.py`, one small class per family, so another module 
 python tools/probe_ports.py                       # list ports and probe each with AT
 python tools/send_at_twice.py COM3 COM4           # raw reply to AT on the given ports
 python tools/validate_board.py /dev/ttyUSB0       # run a fixed set of identification commands
+python tools/cops_scan_bench.py COM3               # does AT+COPS=? answer when deregistered? (restores settings after)
 ```
 
 ---
