@@ -61,6 +61,42 @@ def test_ping_count_is_clamped_to_the_documented_range(manager, monkeypatch):
     assert timeout == 10 * 4 + 5
 
 
+# Reply of a real BC660K-GL when no echo came back (3 October 2026).
+PING_ALL_LOST = (
+    "\r\nOK\r\n\r\n\r\n+QPING: 569\r\n"
+    "\r\n+QPING: 569\r\n"
+    "\r\n+QPING: 569\r\n"
+    "\r\n+QPING: 569\r\n"
+    "\r\n+QPING: 0,4,0,4,0,0,0\r\n"
+)
+
+
+def test_per_packet_error_codes_do_not_end_the_wait(manager, modem):
+    """Regression test for #82: the first bare code used to be taken as the result."""
+    m = modem({'AT+QPING=0,"8.8.8.8",4,4': [
+        (0.0, "\r\nOK\r\n"),
+        (0.2, "\r\n+QPING: 569\r\n"),
+        (0.2, "\r\n+QPING: 569\r\n"),
+        (0.2, "\r\n+QPING: 569\r\n"),
+        (0.2, "\r\n+QPING: 569\r\n"),
+        (0.2, "\r\n+QPING: 0,4,0,4,0,0,0\r\n"),
+    ]})
+
+    res = manager.run_ping_benchmark("8.8.8.8", 4)
+
+    assert res["status"] == "Failed"
+    assert (res["sent"], res["received"], res["lost"]) == (4, 0, 4)
+    assert res["loss_pct"] == 100.0
+    assert res["avg_rtt"] is None
+    assert m.received == ['AT+QPING=0,"8.8.8.8",4,4']
+
+
+def test_all_lost_seven_field_summary_reports_no_round_trip_times(manager):
+    res = manager._parse_ping(PING_ALL_LOST, "8.8.8.8", 4)
+    assert (res["min_rtt"], res["max_rtt"], res["avg_rtt"]) == (None, None, None)
+    assert res["status"] == "Failed"
+
+
 def test_ping_error_code_is_reported(manager):
     res = manager._parse_ping("\r\nOK\r\n\r\n+QPING: 569\r\n", "x", 4)
     assert res["status"] == "Error 569"

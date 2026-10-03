@@ -542,9 +542,11 @@ class SerialManager:
             self._notify("state", self.state)
             return res
 
-    # AT+QPING ends with a summary line (or a bare error code). The per-reply
-    # lines carry a quoted address and do not match.
-    _PING_DONE = re.compile(r"\+QPING:\s*(?:\d+,\d+,\d+,\d+(?:,\d+,\d+,\d+)?|\d+)\s*$", re.M)
+    # AT+QPING ends with a summary line, ``+QPING: <result>,<sent>,<rcvd>,<lost>
+    # [,<min>,<max>,<avg>]``. A bare ``+QPING: <code>`` is the outcome of one
+    # packet (a real board sent ``+QPING: 569`` four times before the summary),
+    # so it must not end the wait.
+    _PING_DONE = re.compile(r"\+QPING:\s*\d+,\d+,\d+,\d+(?:,\d+,\d+,\d+)?\s*$", re.M)
     _PING_SUMMARY = re.compile(r"\+QPING:\s*\d+,(\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\s*$", re.M)
     _PING_ERROR = re.compile(r"\+QPING:\s*(\d+)\s*$", re.M)
     # AT+QIDNSGIP answers "+QIDNSGIP: <err>,<count>,<ttl>" and then one line
@@ -563,7 +565,7 @@ class SerialManager:
         if match:
             sent, rcvd, lost = (int(x) for x in match.groups()[:3])
             rtts = [int(x) for x in match.groups()[3:] if x is not None]
-            min_rtt, max_rtt, avg_rtt = rtts if len(rtts) == 3 else (None, None, None)
+            min_rtt, max_rtt, avg_rtt = rtts if len(rtts) == 3 and rcvd > 0 else (None, None, None)
             return {
                 "host": host,
                 "sent": sent,
