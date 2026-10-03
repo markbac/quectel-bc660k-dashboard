@@ -42,6 +42,30 @@ def timeout_for(cmd: str, default: float = DEFAULT_AT_TIMEOUT) -> float:
     return default
 
 
+# Access technology values of +COPS (3GPP TS 27.007, as listed in the BC660K-GL manual).
+COPS_ACT_NAMES = {
+    0: "GSM",
+    2: "UTRAN (3G)",
+    7: "LTE (E-UTRAN)",
+    9: "NB-IoT (E-UTRAN NB-S1)",
+}
+
+# <stat> values of +CEREG.
+CEREG_STAT_NAMES = {
+    0: "Not registered, not searching",
+    1: "Registered, home network",
+    2: "Not registered, searching...",
+    3: "Registration denied",
+    4: "Unknown / Out of coverage",
+    5: "Registered, roaming",
+    6: "Registered for SMS only, home network",
+    7: "Registered for SMS only, roaming",
+    8: "Attached for emergency bearer services only",
+    9: "Registered (CSFB not preferred), home network",
+    10: "Registered (CSFB not preferred), roaming",
+}
+
+
 class SerialManager:
     VERSION = __version__
     ATTACH_CHECKS = 5
@@ -749,10 +773,10 @@ class SerialManager:
                 if self.is_demo:
                     time.sleep(2.5)
                     scanned = [
-                        {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "LTE Cat NB2"},
-                        {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "LTE Cat NB2"},
-                        {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "LTE Cat NB2"},
-                        {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "LTE Cat NB2"}
+                        {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                        {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                        {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                        {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "NB-IoT (E-UTRAN NB-S1)"}
                     ]
                 else:
                     with self.lock:
@@ -1081,15 +1105,7 @@ class SerialManager:
         match = re.search(r'\+CEREG:\s*\d+,(\d+)(?:,"([0-9A-Fa-f]+)","([0-9A-Fa-f]+)")?', resp)
         if match:
             stat_code = int(match.group(1))
-            stat_names = {
-                0: "Not registered, searching...",
-                1: "Registered, home network",
-                2: "Not registered, searching...",
-                3: "Registration denied",
-                4: "Unknown / Out of coverage",
-                5: "Registered, roaming"
-            }
-            stat_str = stat_names.get(stat_code, f"Stat {stat_code}")
+            stat_str = CEREG_STAT_NAMES.get(stat_code, f"Stat {stat_code}")
             if stat_str != self.last_cereg_stat:
                 self.log(f"[CONNECTIVITY STATE] EPS Registration: {stat_str}", "INFO")
                 self.last_cereg_stat = stat_str
@@ -1113,7 +1129,6 @@ class SerialManager:
 
     def _parse_cops_scan(self, resp: str) -> List[Dict[str, Any]]:
         status_map = {0: "Unknown", 1: "Available", 2: "Current", 3: "Forbidden"}
-        act_map = {0: "GSM", 2: "UTRAN (3G)", 7: "LTE Cat M1", 9: "LTE Cat NB2"}
 
         results = []
         matches = re.findall(r'\((?:(\d+),"([^"]+)","([^"]+)","([^"]+)"(?:,(\d+))?)\)', resp)
@@ -1122,7 +1137,7 @@ class SerialManager:
             long_name = m[1]
             short_name = m[2]
             plmn = m[3]
-            act_code = int(m[4]) if m[4] else 9
+            act_code = int(m[4]) if m[4] else None
 
             results.append({
                 "status": status_map.get(stat_code, "Unknown"),
@@ -1130,7 +1145,7 @@ class SerialManager:
                 "long_name": long_name,
                 "short_name": short_name,
                 "plmn": plmn,
-                "act": act_map.get(act_code, f"AcT {act_code}")
+                "act": COPS_ACT_NAMES.get(act_code, "Unknown" if act_code is None else f"AcT {act_code}")
             })
         return results
 
