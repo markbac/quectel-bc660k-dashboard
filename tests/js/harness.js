@@ -31,6 +31,7 @@ function loadDashboard(options = {}) {
             ports: [],
             history: options.history || [],
             stats: { total_records: (options.history || []).length },
+            awaiting_identity: Boolean(options.awaitingIdentity),
         }),
     });
     w.Chart = class {

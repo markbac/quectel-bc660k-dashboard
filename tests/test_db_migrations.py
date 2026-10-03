@@ -44,7 +44,7 @@ def test_older_databases_migrate_and_keep_their_rows(tmp_path, start_version):
 
     assert _version(path) == latest_schema_version()
     assert "idx_iccid_time" in _indexes(path)
-    assert db.get_stats()["total_records"] == 1
+    assert db.get_stats("X")["total_records"] == 1
 
 
 def test_a_backup_is_taken_before_migrating(tmp_path):
@@ -69,7 +69,7 @@ def test_running_migrations_twice_changes_nothing(tmp_path):
     db = DBManager(path)
 
     assert sorted(glob.glob(path + "*")) == before  # no second backup
-    assert db.get_stats()["total_records"] == 1
+    assert db.get_stats("X")["total_records"] == 1
     assert _version(path) == latest_schema_version()
 
 

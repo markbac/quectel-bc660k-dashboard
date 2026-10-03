@@ -22,9 +22,10 @@ def test_database_and_directory_are_created_on_first_use(tmp_path):
 
 def test_existing_data_is_kept_when_reopened(tmp_path):
     path = str(tmp_path / "telemetry.db")
-    DBManager(path).log_record({"signal": {"rsrp": -90}})
+    state = {"signal": {"rsrp": -90}, "mode": "DEMO", "sim_info": {"iccid": "89000000000000000001"}}
+    DBManager(path).log_record(state)
 
-    assert DBManager(path).get_stats()["total_records"] == 1
+    assert DBManager(path).get_stats("89000000000000000001")["total_records"] == 1
 
 
 def test_env_var_overrides_the_default(monkeypatch, tmp_path):

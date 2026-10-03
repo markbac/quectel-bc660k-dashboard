@@ -163,17 +163,21 @@ def scan_networks():
     return {"status": "ok", "message": "Async network scan triggered"}
 
 # --- SQLite History & Export Endpoints ---
+# History is scoped to the ICCID of the SIM in the connected board.
 @app.get("/api/history")
 def get_history(limit: int = Query(200, ge=10, le=2000)):
-    history = manager.db.get_history(limit=limit)
-    stats = manager.db.get_stats()
-    return {"history": history, "stats": stats}
+    iccid = manager.current_iccid
+    return {
+        "history": manager.db.get_history(iccid, limit=limit),
+        "stats": manager.db.get_stats(iccid),
+        "awaiting_identity": iccid is None,
+    }
 
 @app.get("/api/history/export")
 def export_csv():
-    records = manager.db.get_history(limit=5000)
+    records = manager.db.get_history(manager.current_iccid, limit=5000)
     if not records:
-        return Response(content="No data logged yet", media_type="text/plain")
+        return Response(content="No data logged yet for the connected SIM", media_type="text/plain")
 
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=records[0].keys())
@@ -187,9 +191,10 @@ def export_csv():
     )
 
 @app.post("/api/history/clear")
-def clear_history():
-    manager.db.clear_history()
-    return {"status": "ok", "stats": manager.db.get_stats()}
+def clear_history(all_sims: bool = Query(False, alias="all")):
+    """Delete the connected SIM's history, or every SIM's with ``?all=true``."""
+    deleted = manager.db.clear_history(manager.current_iccid, everything=all_sims)
+    return {"status": "ok", "deleted": deleted, "stats": manager.db.get_stats(manager.current_iccid)}
 
 # --- Shutdown Endpoint ---
 @app.post("/api/shutdown")

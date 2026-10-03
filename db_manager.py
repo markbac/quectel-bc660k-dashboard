@@ -71,12 +71,25 @@ def _migration_2_iccid_index(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_iccid_time ON signal_history(iccid, unix_time)")
 
 
+def _migration_3_scope_by_iccid(conn: sqlite3.Connection) -> None:
+    """Version 3: drop unattributable rows and stop keeping the IMSI.
+
+    History is shown per ICCID, so rows with no ICCID can never be displayed
+    and are removed (a backup is taken first). The IMSI is not needed for
+    scoping and is sensitive, so existing values are cleared. The column
+    itself stays, since data columns are never dropped automatically.
+    """
+    conn.execute("DELETE FROM signal_history WHERE iccid IS NULL OR iccid = '' OR iccid = '--'")
+    conn.execute("UPDATE signal_history SET imsi = NULL")
+
+
 # Ordered list of schema migrations. The position (1-based) is the schema
 # version stored in ``PRAGMA user_version``. Append new migrations; never edit
 # or reorder existing ones, and never drop data columns automatically.
 MIGRATIONS: List[Callable[[sqlite3.Connection], None]] = [
     _migration_1_create_history,
     _migration_2_iccid_index,
+    _migration_3_scope_by_iccid,
 ]
 
 
@@ -154,80 +167,106 @@ class DBManager:
             conn.execute("ROLLBACK")
             raise
 
-    def log_record(self, state: Dict[str, Any]):
-        """Logs current signal and cell metrics into SQLite."""
+    @staticmethod
+    def is_valid_iccid(iccid: Optional[str]) -> bool:
+        """True for a real SIM identity (not empty and not the ``--`` placeholder)."""
+        return bool(iccid) and iccid != "--"
+
+    def log_record(self, state: Dict[str, Any]) -> bool:
+        """Log current signal and cell metrics into SQLite.
+
+        A row is only written when the modem has answered (or demo mode is
+        on), the SIM's ICCID is known and signal values are present.
+
+        Returns:
+            True if a row was written.
+        """
         sig = state.get("signal", {})
         sc = state.get("serving_cell", {})
         sim = state.get("sim_info", {})
         sys_info = state.get("system_info", {})
 
+        communicated = state.get("hardware_communicated") or state.get("mode") == "DEMO"
+        iccid = sim.get("iccid")
+        if not communicated or not self.is_valid_iccid(iccid) or sig.get("rsrp") is None:
+            return False
+
         now = time.time()
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
+        with closing(self._get_connection()) as conn, conn:
+            conn.execute("""
                 INSERT INTO signal_history (
                     unix_time, rssi, csq, rsrp, rsrq, sinr, ber, quality_label,
                     operator, mcc, mnc, cell_id, pci, earfcn, band, tac,
-                    ip_address, voltage, temperature, iccid, imsi
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ip_address, voltage, temperature, iccid
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 now,
-                sig.get("rssi", 0),
-                sig.get("csq", 0),
-                sig.get("rsrp", -140),
-                sig.get("rsrq", -20),
-                sig.get("sinr", 0),
-                sig.get("ber", 0),
-                sig.get("quality_label", "Unknown"),
-                sc.get("operator", ""),
-                sc.get("mcc", ""),
-                sc.get("mnc", ""),
-                sc.get("cell_id", ""),
-                sc.get("pci", 0),
-                sc.get("earfcn", 0),
-                sc.get("band", ""),
-                sc.get("tac", ""),
-                sys_info.get("ip_address", ""),
-                sys_info.get("voltage", 0),
-                sys_info.get("temperature", 0.0),
-                sim.get("iccid", ""),
-                sim.get("imsi", "")
+                sig.get("rssi"),
+                sig.get("csq"),
+                sig.get("rsrp"),
+                sig.get("rsrq"),
+                sig.get("sinr"),
+                sig.get("ber"),
+                sig.get("quality_label"),
+                sc.get("operator"),
+                sc.get("mcc"),
+                sc.get("mnc"),
+                sc.get("cell_id"),
+                sc.get("pci"),
+                sc.get("earfcn"),
+                sc.get("band"),
+                sc.get("tac"),
+                sys_info.get("ip_address"),
+                sys_info.get("voltage"),
+                sys_info.get("temperature"),
+                iccid,
             ))
-            conn.commit()
+        return True
 
-    def get_history(self, limit: int = 200, start_time: Optional[float] = None, end_time: Optional[float] = None) -> List[Dict[str, Any]]:
-        """Fetch historical records from SQLite."""
-        query = "SELECT * FROM signal_history"
-        params = []
-        conditions = []
+    def get_history(
+        self,
+        iccid: Optional[str],
+        limit: int = 200,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch records for one SIM, oldest first. No ICCID means no records."""
+        if not self.is_valid_iccid(iccid):
+            return []
 
+        query = "SELECT * FROM signal_history WHERE iccid = ?"
+        params: List[Any] = [iccid]
         if start_time:
-            conditions.append("unix_time >= ?")
+            query += " AND unix_time >= ?"
             params.append(start_time)
         if end_time:
-            conditions.append("unix_time <= ?")
+            query += " AND unix_time <= ?"
             params.append(end_time)
-
-        if conditions:
-            query += " WHERE " + " AND ".join(conditions)
-
         query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
 
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            result = [dict(row) for row in rows]
-            result.reverse()  # Return in chronological order
-            return result
+        with closing(self._get_connection()) as conn:
+            rows = conn.execute(query, params).fetchall()
+        result = [dict(row) for row in rows]
+        result.reverse()  # chronological order
+        return result
 
-    def get_stats(self) -> Dict[str, Any]:
-        """Get summary stats (min, max, avg RSRP, total records)."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
+    EMPTY_STATS = {
+        "total_records": 0,
+        "min_rsrp": 0,
+        "max_rsrp": 0,
+        "avg_rsrp": 0,
+        "avg_rsrq": 0,
+        "total_cells": 0,
+    }
+
+    def get_stats(self, iccid: Optional[str]) -> Dict[str, Any]:
+        """Summary statistics for one SIM (zeros when there is no ICCID or no data)."""
+        if not self.is_valid_iccid(iccid):
+            return dict(self.EMPTY_STATS)
+        with closing(self._get_connection()) as conn:
+            row = conn.execute("""
+                SELECT
                     COUNT(*) as total_records,
                     MIN(rsrp) as min_rsrp,
                     MAX(rsrp) as max_rsrp,
@@ -235,22 +274,21 @@ class DBManager:
                     ROUND(AVG(rsrq), 1) as avg_rsrq,
                     COUNT(DISTINCT cell_id) as total_cells
                 FROM signal_history
-            """)
-            row = cursor.fetchone()
-            if row and row["total_records"] > 0:
-                return dict(row)
-            return {
-                "total_records": 0,
-                "min_rsrp": 0,
-                "max_rsrp": 0,
-                "avg_rsrp": 0,
-                "avg_rsrq": 0,
-                "total_cells": 0
-            }
+                WHERE iccid = ?
+            """, (iccid,)).fetchone()
+        if row and row["total_records"] > 0:
+            return dict(row)
+        return dict(self.EMPTY_STATS)
 
-    def clear_history(self):
-        """Clears all logged history."""
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM signal_history")
-            conn.commit()
+    def clear_history(self, iccid: Optional[str] = None, everything: bool = False) -> int:
+        """Delete one SIM's records, or all records with ``everything=True``.
+
+        Returns:
+            The number of rows deleted.
+        """
+        with closing(self._get_connection()) as conn, conn:
+            if everything:
+                return conn.execute("DELETE FROM signal_history").rowcount
+            if not self.is_valid_iccid(iccid):
+                return 0
+            return conn.execute("DELETE FROM signal_history WHERE iccid = ?", (iccid,)).rowcount
