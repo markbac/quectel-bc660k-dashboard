@@ -44,6 +44,7 @@ CEREG_STAT_NAMES = {
 
 
 # Fixed identity used in demo mode so simulated rows never mix with real data.
+DEFAULT_HISTORY_INTERVAL = 5  # seconds between database rows
 DEMO_ICCID = "DEMO-SIMULATED-SIM"
 
 
@@ -132,6 +133,7 @@ class SerialManager:
 
         self.telemetry_interval: int = telemetry_interval
         self.cops_scan_interval: int = cops_scan_interval
+        self.history_interval: int = DEFAULT_HISTORY_INTERVAL
         self.last_cops_scan_time: float = 0
 
         self.file_logging_enabled: bool = file_logging_enabled
@@ -171,6 +173,7 @@ class SerialManager:
             "sleep_events": False,
             "file_logging_enabled": self.file_logging_enabled,
             "telemetry_interval": self.telemetry_interval,
+            "history_interval": self.history_interval,
             "cops_scan_interval": self.cops_scan_interval,
             "connectivity_status": "No Connection",
             "signal": {
@@ -287,7 +290,21 @@ class SerialManager:
         self._update_session()
         self.db.log_record(self.state, self._session_id)
 
-    def update_settings(self, telemetry_interval: Optional[int] = None, cops_scan_interval: Optional[int] = None):
+    def update_settings(
+        self,
+        telemetry_interval: Optional[int] = None,
+        cops_scan_interval: Optional[int] = None,
+        history_interval: Optional[int] = None,
+    ):
+        """Change the poll, operator-scan and history-logging intervals (seconds).
+
+        Values that are out of range are ignored. ``history_interval`` is how
+        often a row is written to the database, independent of the poll rate.
+        """
+        if history_interval is not None and history_interval >= 1:
+            self.history_interval = history_interval
+            self.state["history_interval"] = history_interval
+
         if telemetry_interval is not None and telemetry_interval >= 1:
             self.telemetry_interval = telemetry_interval
             self.state["telemetry_interval"] = telemetry_interval
@@ -296,7 +313,9 @@ class SerialManager:
             self.cops_scan_interval = cops_scan_interval
             self.state["cops_scan_interval"] = cops_scan_interval
 
-        self.log(f"[CONFIG] Updated intervals: Telemetry={self.telemetry_interval}s, COPS Scan={self.cops_scan_interval}s", "INFO")
+        self.log(
+            f"[CONFIG] Updated intervals: Telemetry={self.telemetry_interval}s, "
+            f"COPS Scan={self.cops_scan_interval}s, History={self.history_interval}s", "INFO")
         self._notify("state", self.state)
 
     def set_apn(self, apn: str, pdp_type: str = "IP", cid: int = 1) -> str:
@@ -1046,7 +1065,7 @@ class SerialManager:
                 if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
                     self.trigger_async_cops_scan()
 
-                if time.time() - last_db_log >= 5.0:
+                if time.time() - last_db_log >= self.history_interval:
                     self._log_history()
                     last_db_log = time.time()
 
@@ -1093,7 +1112,7 @@ class SerialManager:
             if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
                 self.trigger_async_cops_scan()
 
-            if time.time() - last_db_log >= 4.0:
+            if time.time() - last_db_log >= self.history_interval:
                 self._log_history()
                 last_db_log = time.time()
 

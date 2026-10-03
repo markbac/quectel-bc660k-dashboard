@@ -112,3 +112,36 @@ def test_endpoint_windows(api):
 def test_endpoint_rejects_unknown_window(api):
     _, client = api
     assert client.get("/api/history/series?window=1y").status_code == 422
+
+
+def test_custom_range_uses_start_and_end(api):
+    server, client = api
+    server.manager.state["sim_info"]["iccid"] = ICCID
+    add_rows(server.manager.db, 100, start=1_000_000.0, step=10.0)
+
+    body = client.get("/api/history/series?window=custom&start=1000500&end=1000700").json()
+
+    assert len(body["series"]) == 21
+    assert body["window"] == "custom"
+
+
+def test_custom_range_may_be_open_ended(api):
+    server, client = api
+    server.manager.state["sim_info"]["iccid"] = ICCID
+    add_rows(server.manager.db, 10, start=1_000_000.0, step=10.0)
+    assert len(client.get("/api/history/series?window=custom&start=1000050").json()["series"]) == 5
+    assert len(client.get("/api/history/series?window=custom&end=1000050").json()["series"]) == 6
+
+
+def test_custom_range_rejects_reversed_bounds(api):
+    _, client = api
+    assert client.get("/api/history/series?window=custom&start=10&end=5").status_code == 422
+
+
+def test_history_interval_setting(api):
+    server, client = api
+    assert client.post("/api/settings", json={"history_interval": 30}).status_code == 200
+    assert server.manager.history_interval == 30
+    assert server.manager.state["history_interval"] == 30
+    client.post("/api/settings", json={"history_interval": 0})  # ignored: out of range
+    assert server.manager.history_interval == 30
