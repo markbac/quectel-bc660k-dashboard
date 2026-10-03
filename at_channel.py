@@ -21,7 +21,9 @@ from typing import Callable, Optional, Pattern
 # margin. Matched by prefix, first match wins, on the upper-cased command.
 AT_TIMEOUTS = (
     ("AT+CGATT=", 70.0),
-    ("AT+COPS=?", 35.0),
+    # The manual says 35 s, but a real BC660K-GL stayed silent for longer while
+    # scanning, so allow the three minutes a scan of all bands can take.
+    ("AT+COPS=?", 180.0),
     ("AT+QENG", 15.0),
     ("AT+CSQ", 5.0),
     ("AT+CESQ", 5.0),
