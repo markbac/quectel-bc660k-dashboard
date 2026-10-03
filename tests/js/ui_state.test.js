@@ -81,3 +81,12 @@ test("the status badge tells the user to press RESET when the modem is silent", 
     h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: true, modem_responding: true });
     assert.strictEqual(h.text("statusText"), "Connected (COM3)");
 });
+
+test("the PSM badge follows the state reported by the module", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, psm_info: { enabled: true, status: "PSM Enabled" } });
+    assert.strictEqual(h.text("psmStatusBadge"), "PSM Enabled");
+    assert.ok(h.document.getElementById("psmStatusBadge").className.includes("badge-good"));
+    h.push({ ...fullState, psm_info: { enabled: false, status: "PSM Disabled" } });
+    assert.strictEqual(h.text("psmStatusBadge"), "PSM Disabled");
+});
