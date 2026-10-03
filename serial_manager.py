@@ -45,6 +45,10 @@ def timeout_for(cmd: str, default: float = DEFAULT_AT_TIMEOUT) -> float:
 class SerialManager:
     VERSION = __version__
     ATTACH_CHECKS = 5
+    # Context ID used by the documented AT+QPING / AT+QIDNSGIP examples.
+    PING_CONTEXT_ID = 0
+    PING_REPLY_TIMEOUT = 4  # seconds per echo, the documented default
+    DNS_TIMEOUT = 20.0
     ATTACH_CHECK_INTERVAL = 1.0
 
     def __init__(
@@ -330,47 +334,24 @@ class SerialManager:
             self._notify("state", self.state)
             return res
 
+        count = max(1, min(10, int(count)))
         with self.lock:
-            cmd = f'AT+QPING=1,"{host}",4,{count}'
-            resp = self._send_at_cmd_raw(cmd, timeout_sec=10.0)
-            
-            match = re.search(r'\+QPING:\s*\d+,(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)', resp)
-            if match:
-                sent, rcvd, lost, min_rtt, max_rtt, avg_rtt = [int(x) for x in match.groups()]
-                loss_pct = (lost / sent * 100) if sent > 0 else 100.0
-                res = {
-                    "host": host,
-                    "sent": sent,
-                    "received": rcvd,
-                    "lost": lost,
-                    "loss_pct": loss_pct,
-                    "min_rtt": min_rtt,
-                    "max_rtt": max_rtt,
-                    "avg_rtt": avg_rtt,
-                    "status": "Success" if rcvd > 0 else "Failed"
-                }
-            else:
-                res = {
-                    "host": host,
-                    "sent": count,
-                    "received": 0,
-                    "lost": count,
-                    "loss_pct": 100.0,
-                    "min_rtt": 0,
-                    "max_rtt": 0,
-                    "avg_rtt": 0,
-                    "status": f"Response: {resp.strip()}"
-                }
-
+            cmd = f'AT+QPING={self.PING_CONTEXT_ID},"{host}",{self.PING_REPLY_TIMEOUT},{count}'
+            resp = self._send_at_cmd_raw(
+                cmd,
+                timeout_sec=count * self.PING_REPLY_TIMEOUT + 5.0,
+                wait_for=self._PING_DONE,
+            )
+            res = self._parse_ping(resp, host, count)
             self.state["last_ping_result"] = res
-            self.log(f"[PING RESULT] {host}: Avg RTT {res.get('avg_rtt', 0)} ms", "INFO")
+            self.log(f"[PING RESULT] {host}: {res['status']}", "INFO")
             self._notify("state", self.state)
             return res
 
     def run_dns_query(self, domain: str = "leshan.eclipseprojects.io") -> Dict[str, Any]:
         """Executes DNS domain lookup on modem."""
         self.log(f"[DNS QUERY] Resolving domain '{domain}'...", "INFO")
-        
+
         if self.is_demo:
             time.sleep(0.8)
             res = {"domain": domain, "resolved_ip": "51.159.20.165", "status": "Success (Simulated)"}
@@ -380,21 +361,80 @@ class SerialManager:
             return res
 
         with self.lock:
-            cmd = f'AT+QIDNSGIP=1,"{domain}"'
-            resp = self._send_at_cmd_raw(cmd, timeout_sec=8.0)
-            
-            match = re.search(r'\+QIDNSGIP:\s*0,1,1,?"([0-9\.]+)"?', resp) or re.search(r'([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})', resp)
-            resolved_ip = match.group(1) if match else "Failed to resolve"
-            
-            res = {
-                "domain": domain,
-                "resolved_ip": resolved_ip,
-                "status": "Success" if match else "Failed"
-            }
+            cmd = f'AT+QIDNSGIP={self.PING_CONTEXT_ID},"{domain}"'
+            resp = self._send_at_cmd_raw(cmd, timeout_sec=self.DNS_TIMEOUT, wait_for=self._DNS_DONE)
+            res = self._parse_dns(resp, domain)
             self.state["last_dns_result"] = res
-            self.log(f"[DNS RESULT] {domain} -> {resolved_ip}", "INFO")
+            self.log(f"[DNS RESULT] {domain} -> {res['resolved_ip']} ({res['status']})", "INFO")
             self._notify("state", self.state)
             return res
+
+    # AT+QPING ends with a summary line (or a bare error code). The per-reply
+    # lines carry a quoted address and do not match.
+    _PING_DONE = re.compile(r"\+QPING:\s*(?:\d+,\d+,\d+,\d+(?:,\d+,\d+,\d+)?|\d+)\s*$", re.M)
+    _PING_SUMMARY = re.compile(r"\+QPING:\s*\d+,(\d+),(\d+),(\d+)(?:,(\d+),(\d+),(\d+))?\s*$", re.M)
+    _PING_ERROR = re.compile(r"\+QPING:\s*(\d+)\s*$", re.M)
+    # AT+QIDNSGIP answers "+QIDNSGIP: <err>,<count>,<ttl>" and then one line
+    # per address. A non-zero error code ends the wait too.
+    _DNS_DONE = re.compile(r'\+QIDNSGIP:\s*(?:"?\d{1,3}(?:\.\d{1,3}){3}"?|[1-9]\d*)\s*(?:,|$)', re.M)
+    _DNS_ADDRESS = re.compile(r'\+QIDNSGIP:\s*"?(\d{1,3}(?:\.\d{1,3}){3})"?', re.M)
+    _DNS_ERROR = re.compile(r"\+QIDNSGIP:\s*([1-9]\d*)\s*(?:,|$)", re.M)
+
+    @classmethod
+    def _parse_ping(cls, resp: str, host: str, count: int) -> Dict[str, Any]:
+        """Turn an ``AT+QPING`` response into a result dictionary.
+
+        A missing summary is reported as a timeout, not as 100% loss.
+        """
+        match = cls._PING_SUMMARY.search(resp)
+        if match:
+            sent, rcvd, lost = (int(x) for x in match.groups()[:3])
+            rtts = [int(x) for x in match.groups()[3:] if x is not None]
+            min_rtt, max_rtt, avg_rtt = rtts if len(rtts) == 3 else (None, None, None)
+            return {
+                "host": host,
+                "sent": sent,
+                "received": rcvd,
+                "lost": lost,
+                "loss_pct": (lost / sent * 100) if sent > 0 else 100.0,
+                "min_rtt": min_rtt,
+                "max_rtt": max_rtt,
+                "avg_rtt": avg_rtt,
+                "status": "Success" if rcvd > 0 else "Failed",
+            }
+        error = cls._PING_ERROR.search(resp)
+        if error:
+            status = f"Error {error.group(1)}"
+        elif "ERROR" in resp:
+            status = f"Response: {resp.strip()}"
+        else:
+            status = "Timed out waiting for result"
+        return {
+            "host": host,
+            "sent": count,
+            "received": None,
+            "lost": None,
+            "loss_pct": None,
+            "min_rtt": None,
+            "max_rtt": None,
+            "avg_rtt": None,
+            "status": status,
+        }
+
+    @classmethod
+    def _parse_dns(cls, resp: str, domain: str) -> Dict[str, Any]:
+        """Turn an ``AT+QIDNSGIP`` response into a result dictionary."""
+        match = cls._DNS_ADDRESS.search(resp)
+        if match:
+            return {"domain": domain, "resolved_ip": match.group(1), "status": "Success"}
+        error = cls._DNS_ERROR.search(resp)
+        if error:
+            status = f"Error {error.group(1)}"
+        elif "ERROR" in resp:
+            status = f"Response: {resp.strip()}"
+        else:
+            status = "Timed out waiting for result"
+        return {"domain": domain, "resolved_ip": None, "status": status}
 
     def register_callback(self, callback):
         self.callbacks.append(callback)
@@ -617,11 +657,20 @@ class SerialManager:
                 kept.append(line)
         return "".join(kept)
 
-    def _send_at_cmd_raw(self, cmd: str, timeout_sec: Optional[float] = None) -> str:
+    def _send_at_cmd_raw(
+        self,
+        cmd: str,
+        timeout_sec: Optional[float] = None,
+        wait_for: Optional["re.Pattern[str]"] = None,
+    ) -> str:
         """Send one AT command and return its response.
 
         ``timeout_sec`` defaults to the documented maximum for the command
-        (see ``AT_TIMEOUTS``).
+        (see ``AT_TIMEOUTS``). Some commands (``AT+QPING``, ``AT+QIDNSGIP``)
+        answer ``OK`` first and deliver the result later as unsolicited
+        lines. For those, ``wait_for`` is a pattern that must also appear
+        before the response is considered complete; on timeout the partial
+        response is returned.
 
         Pending input is discarded before sending so a reply that arrived
         late for an earlier command is not mistaken for this one. After a
@@ -652,7 +701,7 @@ class SerialManager:
             while time.time() - start < timeout_sec:
                 if self.ser.in_waiting > 0:
                     response += self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
-                    if self._FINAL_RESULT.search(response):
+                    if self._FINAL_RESULT.search(response) and (wait_for is None or wait_for.search(response)):
                         timed_out = False
                         break
                 else:

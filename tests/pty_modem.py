@@ -2,12 +2,14 @@
 import os
 import threading
 import time
-from typing import Callable, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import serial
 
-# command -> (delay in seconds, reply text)
-Script = Dict[str, Tuple[float, str]]
+# command -> (delay in seconds, reply text), or a list of such chunks sent in
+# order, each delay counted from the previous chunk
+Chunk = Tuple[float, str]
+Script = Dict[str, Union[Chunk, List[Chunk]]]
 
 
 class PtyModem:
@@ -45,15 +47,18 @@ class PtyModem:
                 if not cmd:
                     continue
                 self.received.append(cmd)
-                delay, reply = self.script.get(cmd, (0.0, "\r\nOK\r\n"))
-                threading.Thread(target=self._reply, args=(delay, reply), daemon=True).start()
+                chunks = self.script.get(cmd, (0.0, "\r\nOK\r\n"))
+                if isinstance(chunks, tuple):
+                    chunks = [chunks]
+                threading.Thread(target=self._reply, args=(chunks,), daemon=True).start()
 
-    def _reply(self, delay: float, reply: str) -> None:
-        time.sleep(delay)
-        try:
-            os.write(self.master, reply.encode("ascii"))
-        except OSError:
-            pass
+    def _reply(self, chunks: List[Chunk]) -> None:
+        for delay, text in chunks:
+            time.sleep(delay)
+            try:
+                os.write(self.master, text.encode("ascii"))
+            except OSError:
+                return
 
     def close(self) -> None:
         self._stop.set()
