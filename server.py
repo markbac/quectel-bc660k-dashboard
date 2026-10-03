@@ -20,6 +20,7 @@ import instance
 from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
+from exporter import ExportConfig, Exporter
 from modem_replay import TranscriptModem
 from port_detect import detect_at_port
 from transcript import TranscriptRecorder, load_transcript
@@ -53,6 +54,10 @@ def broadcast(event_type: str, data: Any):
             asyncio.run_coroutine_threadsafe(connection.send_text(message), loop)
 
 manager.register_callback(broadcast)
+
+export_settings_path = os.path.join(os.path.dirname(os.path.abspath(manager.db.db_path)), "export_settings.json")
+exporter = Exporter(ExportConfig.load(export_settings_path), log=manager.log)
+manager.register_callback(exporter.on_event)
 
 # --- Pydantic Models ---
 class ConnectRequest(BaseModel):
@@ -91,7 +96,43 @@ class PingRequest(BaseModel):
 class DNSRequest(BaseModel):
     domain: str = "leshan.eclipseprojects.io"
 
+class ExportRequest(BaseModel):
+    enabled: bool = False
+    interval: int = 60
+    device_name: str = "bc660k"
+    webhook_url: str = ""
+    webhook_degradation_only: bool = False
+    degradation_rsrp: int = -110
+    mqtt_host: str = ""
+    mqtt_port: int = 1883
+    mqtt_topic: str = "quectel/bc660k/telemetry"
+    mqtt_tls: bool = False
+
 # --- REST Endpoints ---
+@app.get("/api/export")
+def get_export():
+    """Remote export settings and delivery status (never any credentials)."""
+    return exporter.status()
+
+@app.post("/api/export")
+def set_export(req: ExportRequest):
+    """Validate, apply and save the remote export settings."""
+    config = ExportConfig.from_dict(req.model_dump())
+    exporter.configure(config)
+    try:
+        config.save(export_settings_path)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Could not save export settings: {exc}")
+    return exporter.status()
+
+@app.post("/api/export/test")
+def test_export():
+    """Send a test message to every configured destination and report each result."""
+    results = exporter.send_test(manager.state)
+    if not results:
+        raise HTTPException(status_code=400, detail="No webhook URL or MQTT host is configured")
+    return {"results": [{"sink": sink, "ok": ok, "error": error} for sink, ok, error in results]}
+
 @app.post("/api/psm")
 def config_psm(req: PSMRequest):
     res = manager.set_psm_config(req.enabled, req.t3412 or "10100101", req.t3324 or "00100100")

@@ -58,6 +58,10 @@
                     <i class="fa-solid fa-bell"></i>
                 </button>
 
+                <button id="exportBtn" class="btn btn-icon" title="Remote export (MQTT / webhook)">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                </button>
+
                 <button id="exitBtn" class="btn btn-danger-outline" title="Stop Server and Disconnect Board">
                     <i class="fa-solid fa-power-off"></i> Exit
                 </button>
@@ -606,6 +610,33 @@
             <div class="alerts-actions">
                 <button type="button" id="alertsCancel" class="btn btn-outline btn-sm">Cancel</button>
                 <button type="submit" id="alertsSave" class="btn btn-primary btn-sm">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- Remote export settings -->
+    <dialog id="exportDialog" class="alerts-dialog">
+        <form method="dialog" id="exportForm">
+            <h2><i class="fa-solid fa-cloud-arrow-up"></i> Remote export</h2>
+            <p class="alerts-note">Sends signal figures and the serving cell's identity, never the ICCID, IMSI or IMEI.
+                Credentials come from environment variables, not from this form.</p>
+            <label class="alerts-row"><input type="checkbox" id="exportEnabled"> Export enabled</label>
+            <label class="alerts-row">Device name <input type="text" id="exportDevice" maxlength="40"></label>
+            <label class="alerts-row">Send every <input type="number" id="exportInterval" min="10" max="3600"> s</label>
+            <h3>Webhook</h3>
+            <label class="alerts-row">URL <input type="url" id="exportWebhook" placeholder="https://example.com/hook"></label>
+            <label class="alerts-row"><input type="checkbox" id="exportDegradationOnly"> Only on signal degradation</label>
+            <label class="alerts-row">Degraded below <input type="number" id="exportDegradation" min="-140" max="-40"> dBm</label>
+            <h3>MQTT <span id="exportMqttNote" class="alerts-note"></span></h3>
+            <label class="alerts-row">Broker <input type="text" id="exportMqttHost" placeholder="broker.example.com">
+                : <input type="number" id="exportMqttPort" min="1" max="65535"></label>
+            <label class="alerts-row">Topic <input type="text" id="exportMqttTopic"></label>
+            <label class="alerts-row"><input type="checkbox" id="exportMqttTls"> Use TLS</label>
+            <p id="exportStatus" class="alerts-note"></p>
+            <div class="alerts-actions">
+                <button type="button" id="exportTest" class="btn btn-outline btn-sm">Send test</button>
+                <button type="button" id="exportCancel" class="btn btn-outline btn-sm">Close</button>
+                <button type="submit" id="exportSave" class="btn btn-primary btn-sm">Save</button>
             </div>
         </form>
     </dialog>
