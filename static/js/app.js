@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const imeiVal = document.getElementById("imeiVal");
     const voltageVal = document.getElementById("voltageVal");
+    const firmwareVal = document.getElementById("firmwareVal");
     const tempVal = document.getElementById("tempVal");
     const mapLink = document.getElementById("mapLink");
 
@@ -579,13 +580,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const sys = state.system_info || {};
         imeiVal.textContent = isCommunicated ? (sys.imei || "N/A") : "--";
         ipVal.textContent = isCommunicated ? (sys.ip_address || "Not Connected") : "--";
-        voltageVal.innerHTML = isCommunicated && sys.voltage ? `${sys.voltage} mV <small>(${(sys.voltage/1000).toFixed(2)} V)</small>` : "--";
-        tempVal.textContent = isCommunicated ? (sys.firmware || "BC660KGLAAR01A05") : "--";
+        voltageVal.textContent = isCommunicated && sys.voltage ? `${sys.voltage} mV (${(sys.voltage / 1000).toFixed(2)} V)` : "--";
+        firmwareVal.textContent = isCommunicated ? (sys.firmware || "N/A") : "--";
+        tempVal.textContent = isCommunicated && typeof sys.temperature === "number" ? `${sys.temperature} \u00b0C` : "--";
 
         const loc = state.location || {};
         if (isCommunicated && loc.lat && loc.lon) {
             mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
-            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${loc.lat}, ${loc.lon}`;
+            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${escapeHtml(String(loc.lat))}, ${escapeHtml(String(loc.lon))}`;
         } else {
             mapLink.href = "#";
             mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> Awaiting Cell Geolocation...`;
