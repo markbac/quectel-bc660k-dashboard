@@ -11,3 +11,4 @@ ENV/
 .pytest_cache/
 .ruff_cache/
 node_modules/
+dashboard.pid

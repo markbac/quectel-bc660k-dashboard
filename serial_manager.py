@@ -5,12 +5,12 @@ import os
 import sys
 import threading
 import random
-import subprocess
 from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List, Optional
 import serial
 import serial.tools.list_ports
 
+import instance
 from db_manager import DBManager
 from pylogkit import setup_logging
 
@@ -424,15 +424,21 @@ class SerialManager:
         return result
 
     def _reclaim_port(self, port: str):
-        self.log(f"[WARNING] Port {port} is locked by another process! Attempting to free port handle (Tool v{self.VERSION})...", "WARNING")
-        try:
-            ps_script = f"Get-CimInstance Win32_Process | Where-Object {{ $_.ProcessId -ne {os.getpid()} -and ($_.Name -eq 'python.exe' -and $_.CommandLine -like '*server.py*') }} | Stop-Process -Force -ErrorAction SilentlyContinue"
-            cmd = f'powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "{ps_script}"'
-            creation_flags = 0x08000000 if os.name == 'nt' else 0
-            subprocess.run(cmd, shell=True, timeout=5, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creation_flags)
-            time.sleep(0.8)
-        except Exception as e:
-            self.log(f"[RECLAIM ERROR] Could not terminate locking process: {e}", "ERROR")
+        """Stop a previous instance of this dashboard that may hold the port.
+
+        Only the process recorded in the dashboard's own PID file is touched.
+        An unrelated process holding the port is left alone and reported.
+        """
+        self.log(f"[WARNING] Port {port} is locked by another process (Tool v{self.VERSION}).", "WARNING")
+        pid = instance.terminate_stale_instance()
+        if pid is None:
+            self.log(
+                f"[RECLAIM] No previous dashboard instance found. Close whichever program is using {port} and retry.",
+                "WARNING",
+            )
+            return
+        self.log(f"[RECLAIM] Stopped previous dashboard instance (PID {pid}).", "INFO")
+        time.sleep(0.8)
 
     def connect(self, port: str, baudrate: int = 115200) -> bool:
         if self.is_connected and self.port == port and self.baudrate == baudrate:
