@@ -67,6 +67,9 @@ NBIOT_EVENTS = {
 class SerialManager:
     VERSION = __version__
     IDENTITY_RECHECK_SECONDS = 60.0
+    # How often slow-changing items are polled (registration changes also arrive as URCs).
+    DEFAULT_SLOW_POLL_SECONDS = 30.0
+    SLOW_POLL_SECONDS = {"AT+CEREG?": 60.0}
     PROBE_TRIES = 3
     PROBE_TIMEOUT = 1.5
     WAKE_HINT = (
@@ -146,6 +149,7 @@ class SerialManager:
         self._temp_supported: bool = False
         self._last_identity_check: float = 0.0
         self._wake_hint_shown: bool = False
+        self._last_slow_run: Dict[str, float] = {}
         self._hardware_info_loaded: bool = False
         self._session_id: Optional[int] = None
         self._session_iccid: Optional[str] = None
@@ -784,12 +788,19 @@ class SerialManager:
         self.channel.read_idle()
 
     def _handle_urc(self, line: str):
-        """React to an unsolicited result code. Currently +QNBIOTEVENT."""
-        match = re.match(r'\+QNBIOTEVENT:\s*"([^"]+)"', line.strip())
+        """React to an unsolicited result code (+QNBIOTEVENT and +CEREG)."""
+        line = line.strip()
+        match = re.match(r'\+QNBIOTEVENT:\s*"([^"]+)"', line)
         if match:
             implied = NBIOT_EVENTS.get(match.group(1).upper())
             if implied:
                 self._set_modem_state(implied)
+            return
+        # Registration URC form: +CEREG: <stat>[,<tac>,<ci>,...] (no leading <n>)
+        urc = re.match(r'\+CEREG:\s*(\d+)(?:,"([0-9A-Fa-f]+)","([0-9A-Fa-f]+)")?', line)
+        if urc and not re.match(r'\+CEREG:\s*\d+,\d+', line):
+            self._apply_cereg(int(urc.group(1)), urc.group(2), urc.group(3))
+            self._parse_cereg_granted(line, urc=True)
 
     def _show_wake_hint(self):
         """Tell the user, once per silence, how to wake the modem."""
@@ -943,31 +954,55 @@ class SerialManager:
                 self._poll_hardware_info()
                 self._hardware_info_loaded = True
 
-        steps = [
-            ("AT+CSQ", self._parse_csq),
-            ("AT+CESQ", self._parse_cesq),
-            ("AT+QENG=0", self._parse_qeng),
+        # Fast items every cycle: AT+QENG=0 carries RSRP/RSRQ/RSSI/SINR and the cells.
+        if not self._run_step("AT+CSQ", self._parse_csq):
+            return
+        if not self._run_step("AT+QENG=0", self._parse_qeng):
+            return
+        if self.state["signal"]["rsrp"] is None:  # QENG gave no RSRP: ask CESQ instead
+            if not self._run_step("AT+CESQ", self._parse_cesq):
+                return
+
+        # Slow-changing items on their own timers.
+        slow_steps = [
             ("AT+COPS?", self._parse_cops_query),
             ("AT+CEREG?", self._parse_cereg_query),
             ("AT+CBC", self._parse_cbc),
         ]
         if self._temp_supported:
-            steps.append(("AT+QTEMP", self._parse_qtemp))
-
-        for cmd, parser in steps:
-            if not self.running:
+            slow_steps.append(("AT+QTEMP", self._parse_qtemp))
+        for cmd, parser in slow_steps:
+            if not self._slow_step_due(cmd):
+                continue
+            if not self._run_step(cmd, parser):
                 return
-            with self.lock:
-                if not self.running:
-                    return
-                resp = self._send_at_cmd_raw(cmd)
-            if resp == TIMEOUT_RESPONSE:
-                self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
-                return
-            parser(resp)
 
         if time.monotonic() - self._last_identity_check >= self.IDENTITY_RECHECK_SECONDS:
             self._refresh_identity()
+
+    def _slow_step_due(self, cmd: str) -> bool:
+        """True when a slow-changing item has not been read for its interval."""
+        interval = self.SLOW_POLL_SECONDS.get(cmd, self.DEFAULT_SLOW_POLL_SECONDS)
+        last = self._last_slow_run.get(cmd)
+        return last is None or time.monotonic() - last >= interval
+
+    def _run_step(self, cmd: str, parser) -> bool:
+        """Send one poll command and parse the reply.
+
+        Returns False if the cycle should stop (shutting down or timed out).
+        """
+        if not self.running:
+            return False
+        with self.lock:
+            if not self.running:
+                return False
+            resp = self._send_at_cmd_raw(cmd)
+        if resp == TIMEOUT_RESPONSE:
+            self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
+            return False
+        self._last_slow_run[cmd] = time.monotonic()
+        parser(resp)
+        return True
 
     def _refresh_identity(self):
         """Re-read the ICCID so a SIM swap or module reset is noticed.
@@ -1319,45 +1354,47 @@ class SerialManager:
             self.state["serving_cell"]["operator"] = op
 
     def _parse_cereg_query(self, resp: str):
+        """Parse the response to ``AT+CEREG?`` (``+CEREG: <n>,<stat>[,<tac>,<ci>,...]``)."""
         match = re.search(r'\+CEREG:\s*\d+,(\d+)(?:,"([0-9A-Fa-f]+)","([0-9A-Fa-f]+)")?', resp)
         if match:
-            stat_code = int(match.group(1))
-            stat_str = CEREG_STAT_NAMES.get(stat_code, f"Stat {stat_code}")
-            if stat_str != self.last_cereg_stat:
-                self.log(f"[CONNECTIVITY STATE] EPS Registration: {stat_str}", "INFO")
-                self.last_cereg_stat = stat_str
-                self.state["connectivity_status"] = f"Network: {stat_str}"
-
+            self._apply_cereg(int(match.group(1)), match.group(2), match.group(3))
             self._parse_cereg_granted(resp)
 
-            if match.group(2) and match.group(3):
-                tac_hex = match.group(2)
-                cell_id_hex = match.group(3)
-                try:
-                    cell_id_dec = int(cell_id_hex, 16)
-                    tac_dec = int(tac_hex, 16)
-                except ValueError:
-                    cell_id_dec, tac_dec = 0, 0
+    def _apply_cereg(self, stat_code: int, tac_hex: Optional[str], cell_id_hex: Optional[str]):
+        """Store registration status and, when present, the TAC and cell ID."""
+        stat_str = CEREG_STAT_NAMES.get(stat_code, f"Stat {stat_code}")
+        if stat_str != self.last_cereg_stat:
+            self.log(f"[CONNECTIVITY STATE] EPS Registration: {stat_str}", "INFO")
+            self.last_cereg_stat = stat_str
+            self.state["connectivity_status"] = f"Network: {stat_str}"
 
-                self.state["serving_cell"].update({
-                    "tac": tac_hex,
-                    "tac_dec": tac_dec,
-                    "cell_id": cell_id_hex,
-                    "cell_id_dec": cell_id_dec
-                })
+        if tac_hex and cell_id_hex:
+            cell_id_dec = self._hex_to_int(cell_id_hex)
+            tac_dec = self._hex_to_int(tac_hex)
+            self.state["serving_cell"].update({
+                "tac": tac_hex,
+                "tac_dec": tac_dec if tac_dec is not None else 0,
+                "cell_id": cell_id_hex,
+                "cell_id_dec": cell_id_dec if cell_id_dec is not None else 0,
+            })
 
-    def _parse_cereg_granted(self, resp: str):
-        """Read the granted timers from an extended ``+CEREG`` (``<n>`` = 4) response.
+    def _parse_cereg_granted(self, resp: str, urc: bool = False):
+        """Read the granted timers from an extended ``+CEREG`` report.
 
-        ``+CEREG: 4,<stat>,<tac>,<ci>,<AcT>,<cause_type>,<reject_cause>,"<Active-Time>","<Periodic-TAU>"``
+        Query form (``<n>`` = 4)::
+
+            +CEREG: 4,<stat>,<tac>,<ci>,<AcT>,<cause_type>,<reject_cause>,"<Active-Time>","<Periodic-TAU>"
+
+        The URC form has no leading ``<n>``, so the timers sit one field earlier.
         """
         line = re.search(r"\+CEREG:[^\r\n]*", resp)
         if not line:
             return
         fields = [f.strip().strip('"') for f in line.group(0).split(",")]
-        if len(fields) >= 9 and all(re.fullmatch(r"[01]{8}", f) for f in fields[7:9]):
+        first = 6 if urc else 7
+        if len(fields) >= first + 2 and all(re.fullmatch(r"[01]{8}", f) for f in fields[first:first + 2]):
             granted = self.state["psm_info"].setdefault("granted", {})
-            granted["t3324"], granted["t3412"] = fields[7], fields[8]
+            granted["t3324"], granted["t3412"] = fields[first], fields[first + 1]
             self._update_psm_text()
 
     def _parse_cops_scan(self, resp: str) -> List[Dict[str, Any]]:
