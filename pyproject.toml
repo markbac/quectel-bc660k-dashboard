@@ -31,7 +31,7 @@ version = { attr = "serial_manager.__version__" }
 [tool.setuptools]
 py-modules = [
     "at_channel", "cell_location", "cli", "db_manager", "exporter", "instance", "modem_replay",
-    "plmn", "port_detect", "security", "serial_manager", "server", "startup_check", "timers", "transcript",
+    "plmn", "port_detect", "security", "serial_manager", "server", "startup_check", "survey", "timers", "transcript",
 ]
 
 [tool.pytest.ini_options]
