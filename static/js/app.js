@@ -295,6 +295,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const psmStatusBadge = document.getElementById("psmStatusBadge");
 
     async function sendPsmConfig(enabled) {
+        if (enabled && !confirm("Once PSM is active the module can stop responding on the UART after the T3324 active timer expires. Press RESET on the board to wake it. Enable PSM?")) {
+            return;
+        }
         try {
             const res = await fetch("/api/psm", {
                 method: "POST",
@@ -501,6 +504,10 @@ document.addEventListener("DOMContentLoaded", () => {
             if (isDemo) {
                 connectionStatus.className = "status-badge demo";
                 statusText.textContent = "Demo Mode (--demo)";
+            } else if (state.modem_state === "psm" || state.modem_state === "deep_sleep") {
+                connectionStatus.className = "status-badge connecting";
+                const kind = state.modem_state === "psm" ? "PSM" : "deep sleep";
+                statusText.textContent = `Modem asleep, ${kind} (${state.port}) - press RESET to wake it`;
             } else if (isCommunicated && state.modem_responding === false) {
                 connectionStatus.className = "status-badge connecting";
                 statusText.textContent = `No response (${state.port}) - press RESET on the board`;
