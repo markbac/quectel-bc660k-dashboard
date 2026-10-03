@@ -39,10 +39,14 @@ pip install -r requirements.txt
 ```
 
 ### 2. Running the Server
-Launch the server (connects to `COM3` @ `115200` baud by default):
+Launch the server. It does not connect to a port unless asked to:
 ```bash
-python server.py --port COM3 --baud 115200
+python server.py                            # choose or detect a port in the web UI
+python server.py --port auto                # probe every serial port for an AT modem
+python server.py --port COM3 --baud 115200  # Windows
+python server.py --port /dev/ttyUSB0        # Linux (macOS: /dev/cu.usbserial-*)
 ```
+The magnifying-glass button next to the port list does the same probing from the UI. Candidate ports from FTDI (the FT4232H board exposes four) and Quectel come first, and each is sent `AT` to find the one that answers `OK`.
 Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
 > **Note:** after powering the evaluation board, press the **RESET** button to wake the modem. Until the modem answers, the status badge reads "Connecting ... press RESET on the board if just powered" and the log shows a `[HINT]` line. The dashboard keeps probing with a plain `AT` and loads the module details as soon as it replies. If PSM is enabled the module can also go quiet later; the same hint is shown.

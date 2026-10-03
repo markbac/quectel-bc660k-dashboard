@@ -195,11 +195,14 @@ document.addEventListener("DOMContentLoaded", () => {
             if (data.ports.length === 0) {
                 portSelect.innerHTML = `<option value="">No Ports Detected</option>`;
             } else {
+                const placeholder = document.createElement("option");
+                placeholder.value = "";
+                placeholder.textContent = "Select a port...";
+                portSelect.appendChild(placeholder);
                 data.ports.forEach(p => {
                     const opt = document.createElement("option");
                     opt.value = p.device;
                     opt.textContent = `${p.device} (${p.description})`;
-                    if (p.device === "COM3") opt.selected = true;
                     portSelect.appendChild(opt);
                 });
             }
@@ -494,6 +497,27 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     refreshPortsBtn.addEventListener("click", loadPorts);
+
+    // Probe every port for an AT modem and select the one that answers
+    const detectPortBtn = document.getElementById("detectPortBtn");
+    detectPortBtn.addEventListener("click", async () => {
+        detectPortBtn.disabled = true;
+        try {
+            const res = await fetch("/api/detect", { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.detail || "No modem found");
+            } else {
+                await loadPorts();
+                portSelect.value = data.port;
+                baudSelect.value = String(data.baudrate);
+            }
+        } catch (err) {
+            alert(`Detection failed: ${err.message}`);
+        } finally {
+            detectPortBtn.disabled = false;
+        }
+    });
 
     // Update Dashboard UI with state object
     function updateUIState(state) {
