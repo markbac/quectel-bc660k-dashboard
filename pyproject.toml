@@ -27,7 +27,7 @@ quectel-dashboard = "server:main"
 
 [tool.setuptools]
 py-modules = [
-    "at_channel", "cli", "db_manager", "exporter", "instance", "modem_replay",
+    "at_channel", "cell_location", "cli", "db_manager", "exporter", "instance", "modem_replay",
     "port_detect", "security", "serial_manager", "server", "timers", "transcript",
 ]
 packages = ["pylogkit"]

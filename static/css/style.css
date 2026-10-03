@@ -773,3 +773,6 @@ select:focus {
     border-radius: 6px;
     padding: 2px 6px;
 }
+
+.map-row { margin-top: 16px; }
+.cell-map { height: 320px; border-radius: 8px; margin-top: 8px; }

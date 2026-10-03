@@ -34,6 +34,9 @@ function loadDashboard(options = {}) {
     w.fetch = async (url, init) => {
         harness.fetches.push(String(url));
         harness.lastBody = init && init.body ? JSON.parse(init.body) : null;
+        if (String(url).includes("/api/cell_location") && options.cellLocation) {
+            return { ok: options.cellLocation.ok, json: async () => options.cellLocation.body };
+        }
         return {
             ok: true,
             json: async () => ({
