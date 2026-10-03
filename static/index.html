@@ -215,7 +215,7 @@
                             <div class="form-group">
                                 <label for="apnInput"><i class="fa-solid fa-globe"></i> APN Name:</label>
                                 <div class="input-with-button">
-                                    <input type="text" id="apnInput" placeholder="e.g. iot.vodafone.com, super, hologram..." value="iot.vodafone.com">
+                                    <input type="text" id="apnInput" placeholder="Your SIM provider's APN">
                                     <button id="saveApnBtn" class="btn btn-primary btn-sm">
                                         <i class="fa-solid fa-floppy-disk"></i> Apply & Attach APN
                                     </button>
@@ -559,7 +559,7 @@
                     <div class="card-body table-responsive">
                         <div id="scanLoading" class="scan-loading hidden">
                             <i class="fa-solid fa-spinner fa-spin"></i>
-                            <span>Scanning for available networks. This can take up to 3 minutes. <span id="scanElapsed"></span></span>
+                            <span>Scanning for available networks. This can take about 5 minutes. <span id="scanElapsed"></span></span>
                         </div>
                         <div id="scanError" class="scan-error hidden" role="alert"></div>
                         <table class="data-table" id="networksTable">
@@ -611,7 +611,7 @@
                         </div>
                         <div class="terminal-input-bar">
                             <span class="prompt">AT></span>
-                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CGDCONT=1,&quot;IP&quot;,&quot;iot.vodafone.com&quot;)..." autocomplete="off">
+                            <input type="text" id="atInput" placeholder="Enter AT Command (e.g. AT+CGDCONT=1,&quot;IP&quot;,&quot;your.apn&quot;)..." autocomplete="off">
                             <button id="sendAtBtn" class="btn btn-primary btn-sm"><i class="fa-solid fa-paper-plane"></i> Send</button>
                         </div>
                     </div>

@@ -7,7 +7,7 @@ REAL = '\r\n+COPS: 1,2,"23415",9\r\n\r\nOK\r\n'
 def test_numeric_operator_becomes_a_plmn_with_mcc_and_mnc(manager):
     manager._parse_cops_query(REAL)
     cell = manager.state["serving_cell"]
-    assert cell["operator"] == "PLMN 23415"
+    assert cell["operator"] == "Vodafone UK"
     assert (cell["mcc"], cell["mnc"]) == ("234", "15")
 
 
@@ -28,7 +28,7 @@ def test_alphanumeric_operator_is_shown_as_is_and_leaves_mcc_alone(manager):
 def test_deregistered_or_error_keeps_the_previous_values(manager, resp):
     manager._parse_cops_query(REAL)
     manager._parse_cops_query(resp)
-    assert manager.state["serving_cell"]["operator"] == "PLMN 23415"
+    assert manager.state["serving_cell"]["operator"] == "Vodafone UK"
 
 
 def test_the_decimal_ids_needed_for_a_cell_lookup_are_available(manager):

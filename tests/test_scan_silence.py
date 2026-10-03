@@ -14,8 +14,8 @@ def wait_until(predicate, seconds=10.0):
     return False
 
 
-def test_scan_timeouts_allow_three_minutes():
-    assert at_channel.timeout_for("AT+COPS=?") == 180.0
+def test_scan_timeouts_allow_ten_minutes():
+    assert at_channel.timeout_for("AT+COPS=?") == 600.0
 
 
 def test_silence_during_our_own_scan_is_not_an_unresponsive_modem(manager, monkeypatch):

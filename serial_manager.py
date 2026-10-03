@@ -13,6 +13,7 @@ import timers
 from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
 from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
+from plmn import operator_name
 from pylogkit import setup_logging
 from transcript import TranscriptRecorder
 
@@ -1389,8 +1390,8 @@ class SerialManager:
         """Parse ``+COPS: <mode>,<format>,"<oper>",<AcT>``.
 
         With the numeric format (2), which a real BC660K-GL uses, ``<oper>`` is
-        the PLMN (MCC followed by a 2 or 3 digit MNC). It is shown as a PLMN and
-        also stored as ``mcc``/``mnc``, which ``AT+QENG=0`` does not report.
+        the PLMN (MCC followed by a 2 or 3 digit MNC). It is shown as the operator
+        name where known (else as ``PLMN <code>``) and also stored as ``mcc``/``mnc``, which ``AT+QENG=0`` does not report.
         """
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)
         if not match:
@@ -1399,7 +1400,7 @@ class SerialManager:
         cell = self.state["serving_cell"]
         if re.fullmatch(r"\d{5,6}", op):
             cell["mcc"], cell["mnc"] = op[:3], op[3:]
-            op = f"PLMN {op}"
+            op = operator_name(op) or f"PLMN {op}"
         if op != self.last_cops_op:
             self.log(f"[NETWORK OPERATOR] Carrier: {op} (Previous: {self.last_cops_op})", "INFO")
             self.last_cops_op = op
@@ -1453,13 +1454,17 @@ class SerialManager:
         status_map = {0: "Unknown", 1: "Available", 2: "Current", 3: "Forbidden"}
 
         results = []
-        matches = re.findall(r'\((?:(\d+),"([^"]+)","([^"]+)","([^"]+)"(?:,(\d+))?)\)', resp)
+        # A real BC660K-GL leaves both names empty: (1,"","","23415",9).
+        matches = re.findall(r'\((?:(\d+),"([^"]*)","([^"]*)","([^"]+)"(?:,(\d+))?)\)', resp)
         for m in matches:
             stat_code = int(m[0])
             long_name = m[1]
             short_name = m[2]
             plmn = m[3]
             act_code = int(m[4]) if m[4] else None
+            known = operator_name(plmn)
+            long_name = long_name or known or f"PLMN {plmn}"
+            short_name = short_name or known or ""
 
             results.append({
                 "status": status_map.get(stat_code, "Unknown"),

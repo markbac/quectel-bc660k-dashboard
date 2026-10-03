@@ -23,7 +23,7 @@ def test_whole_dashboard_state_from_the_real_replies(manager):
     try:
         assert manager.connect(modem.slave_name, 115200)
         assert wait_for(lambda: manager.state["signal"]["rsrp"] is not None
-                        and manager.state["serving_cell"]["operator"] == "PLMN 23415"
+                        and manager.state["serving_cell"]["operator"] == "Vodafone UK"
                         and manager.state["psm_info"]["granted"]["t3324"])
         state = manager.state
         cell, signal, system = state["serving_cell"], state["signal"], state["system_info"]
