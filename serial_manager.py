@@ -15,6 +15,7 @@ from db_manager import DBManager
 from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
 from plmn import operator_name
 from startup_check import pylogkit_help
+from survey import NetworkSurvey, initial_state as initial_survey_state
 from transcript import TranscriptRecorder
 
 try:
@@ -135,6 +136,7 @@ class SerialManager:
         self.scan_lock = threading.Lock()
         self.driver: ModuleDriver = DEFAULT_DRIVER
         self._scan_in_progress: bool = False
+        self._survey_abort = threading.Event()
 
         self.poll_thread: Optional[threading.Thread] = None
         self.running: bool = False
@@ -230,6 +232,7 @@ class SerialManager:
             "networks_scan": [],
             "is_scanning": False,
             "scan_error": None,
+            "survey": initial_survey_state(),
             "psm_info": {
                 "enabled": False,
                 "t3412": "10100101",
@@ -927,8 +930,8 @@ class SerialManager:
             command = f'AT+COPS=1,2,"{plmn}",{int(act)}'
         else:
             raise ValueError(f"Unknown registration action '{action}'.")
-        if self.state["is_scanning"]:
-            raise RuntimeError("A carrier scan is running; wait for it to finish.")
+        if self.state["is_scanning"] or self.state["survey"]["running"]:
+            raise RuntimeError("A carrier scan or survey is running; wait for it to finish.")
 
         self.log(f"[REGISTRATION] {action}: {command}", "INFO")
         if self.is_demo:
@@ -946,8 +949,76 @@ class SerialManager:
         self._notify("state", self.state)
         return resp
 
+    def start_network_survey(self, select_best: bool = True) -> None:
+        """Try every visible network in a background thread (see :mod:`survey`).
+
+        :param select_best: connect to the best network at the end, otherwise put
+            back the selection the module had before.
+        :raises RuntimeError: if a scan, registration change or survey is under way.
+        """
+        if self.state["is_scanning"] or self.state["survey"]["running"]:
+            raise RuntimeError("A carrier scan or survey is already running.")
+        self._survey_abort.clear()
+        self.state["survey"]["running"] = True  # claim it before the thread starts
+        threading.Thread(target=self._survey_worker, args=(select_best,), daemon=True).start()
+
+    def stop_network_survey(self) -> None:
+        """Ask a running survey to stop after the network it is on; it then restores the selection."""
+        self._survey_abort.set()
+
+    def _survey_worker(self, select_best: bool) -> None:
+        """Run the survey on the module, or a canned one in demo mode."""
+        survey = NetworkSurvey(
+            send=self._survey_send,
+            parse_scan=self._parse_cops_scan,
+            parse_cell=self.driver.parse_cell,
+            cell_command=lambda: self.driver.cell_command,
+            log=lambda text: self.log(text, "INFO"),
+            publish=lambda: self._notify("state", self.state),
+            aborted=self._survey_abort.is_set,
+            sleep=(lambda seconds: None) if self.is_demo else time.sleep,
+        )
+        survey.state["running"] = True  # the claim made in start_network_survey carries over
+        self.state["survey"] = survey.state
+        self.log("[SURVEY] Starting: the module will leave and rejoin networks, and may take 10 to 20 minutes.", "INFO")
+        self._scan_in_progress = True  # the module is quiet while it changes network
+        try:
+            survey.run(select_best)
+        finally:
+            if not self.is_demo:  # show the network the module ended up on
+                with self.lock:
+                    self._parse_cops_query(self._send_at_cmd_raw("AT+COPS?"))
+                    self._parse_cereg_query(self._send_at_cmd_raw("AT+CEREG?"))
+            self._scan_in_progress = False
+            self.log("[SURVEY] Finished.", "INFO")
+            self._notify("state", self.state)
+
+    def _survey_send(self, command: str, timeout: Optional[float] = None) -> str:
+        """Send one command for the survey, holding the port only for that command."""
+        if self.is_demo:
+            return self._demo_survey_reply(command)
+        with self.lock:
+            return self._send_at_cmd_raw(command, timeout_sec=timeout)
+
+    _DEMO_SURVEY_SIGNAL = {"23415": (-96, -10, 9), "23410": (-104, -12, 3), "23430": (-91, -9, 12)}
+
+    def _demo_survey_reply(self, command: str) -> str:
+        """Plausible replies so the survey can be tried without a module."""
+        if command == "AT+COPS=?":
+            return ('\r\n+COPS: (2,"","","23415",9),(1,"","","23410",9),(1,"","","23430",9),,(0-4),(0-2)\r\n\r\nOK\r\n')
+        if command.startswith("AT+COPS=1"):
+            self._demo_plmn = command.split('"')[1]
+        if command == "AT+CEREG?":
+            return '\r\n+CEREG: 4,5\r\n\r\nOK\r\n'
+        if command == self.driver.cell_command:
+            rsrp, rsrq, sinr = self._DEMO_SURVEY_SIGNAL.get(getattr(self, "_demo_plmn", ""), (-100, -11, 5))
+            return f'\r\n+QENG: 0,6254,12,299,"004EB815",{rsrp},{rsrq},-90,{sinr},20,"E43A",0,-128,2\r\n\r\nOK\r\n'
+        if command == "AT+COPS?":
+            return '\r\n+COPS: 0,2,"23415",9\r\n\r\nOK\r\n'
+        return "\r\nOK\r\n"
+
     def trigger_async_cops_scan(self):
-        if self.state["is_scanning"]:
+        if self.state["is_scanning"] or self.state["survey"]["running"]:
             return
 
         def _scan_worker():

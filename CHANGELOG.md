@@ -32,6 +32,7 @@ A large reliability, security and feature release. Several changes are not backw
 
 ### Added
 
+- A Network Survey card and `POST /api/survey` (and `/api/survey/stop`): scan, try every allowed network in turn, rank by RSRP, SINR and RSRQ, and connect to the best or restore the previous selection (#112). Not yet run on a real board.
 - `tools/cops_scan_bench.py` checks whether `AT+COPS=?` answers while the module is deregistered, and restores the operator selection and sleep setting afterwards (#100).
 - The Available Carrier Networks card can deregister (`AT+COPS=2`), register automatically (`AT+COPS=0`) and register on a scanned network (`AT+COPS=1,2,"<plmn>",<act>`), through `POST /api/register` (#103).
 - Modem state machine with PSM and deep-sleep detection, a start-up profile that reads the real modem state, requested versus granted PSM and eDRX values, and a reminder to press RESET (#61, #62, #63, #64).

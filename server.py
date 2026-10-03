@@ -112,6 +112,9 @@ class RegistrationRequest(BaseModel):
     plmn: Optional[str] = None
     act: int = 9
 
+class SurveyRequest(BaseModel):
+    select_best: bool = True
+
 class PSMRequest(BaseModel):
     enabled: bool
     t3412: Optional[str] = "10100101"
@@ -281,6 +284,23 @@ def register(req: RegistrationRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"status": "ok" if "OK" in resp else "error", "response": resp}
+
+@app.post("/api/survey")
+def start_survey(req: SurveyRequest):
+    """Try every visible network and (by default) connect to the best one."""
+    if not manager.is_connected:
+        raise HTTPException(status_code=400, detail="Serial port not connected")
+    try:
+        manager.start_network_survey(req.select_best)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"status": "ok", "message": "Network survey started"}
+
+@app.post("/api/survey/stop")
+def stop_survey():
+    """Stop a running survey after the network it is on; the module's selection is restored."""
+    manager.stop_network_survey()
+    return {"status": "ok"}
 
 # --- SQLite History & Export Endpoints ---
 # History is scoped to the ICCID of the SIM in the connected board.

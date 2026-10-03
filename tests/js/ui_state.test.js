@@ -230,3 +230,54 @@ test("the ping request carries the timeout, 20 s by default (#111)", async () =>
     await new Promise((r) => setTimeout(r, 10));
     assert.strictEqual(h.lastBody.timeout, 255);
 });
+
+const surveyState = {
+    running: false, phase: "Finished", best: "23410", selected: "23410", error: null, aborted: false,
+    results: [
+        { plmn: "23415", name: "Vodafone UK", act: "NB-IoT", status: "registered", rsrp: -100, rsrq: -12, sinr: 4, pci: 299, earfcn: 6254, seconds: 40 },
+        { plmn: "23410", name: "O2 UK", act: "NB-IoT", status: "registered", rsrp: -90.5, rsrq: -10, sinr: 8, pci: 12, earfcn: 6254, seconds: 55 },
+        { plmn: "23430", name: "EE", act: "NB-IoT", status: "denied", rsrp: null, rsrq: null, sinr: null, pci: null, earfcn: null, seconds: 6 },
+    ],
+};
+
+test("the survey button posts the choice and the table marks the best network (#112)", async () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, survey: surveyState });
+    const rows = h.document.querySelectorAll("#surveyTableBody tr");
+    assert.strictEqual(rows.length, 3);
+    assert.match(rows[1].textContent, /O2 UK \(best, connected\)/);
+    assert.ok(rows[1].classList.contains("survey-best"));
+    assert.match(rows[2].textContent, /Denied/);
+    assert.match(rows[2].textContent, /--/);
+    h.document.getElementById("surveyBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.ok(h.fetches.some((u) => u.includes("/api/survey")));
+    assert.deepStrictEqual(h.lastBody, { select_best: true });
+    h.document.getElementById("surveySelectBest").checked = false;
+    h.document.getElementById("surveyBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(h.lastBody, { select_best: false });
+});
+
+test("while a survey runs the other operator controls are disabled and Stop is shown", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, survey: { ...surveyState, running: true, phase: "Network 2 of 3: O2 UK" } });
+    const d = h.document;
+    assert.ok(d.getElementById("surveyBtn").disabled);
+    assert.ok(d.getElementById("scanBtn").disabled);
+    assert.ok(d.getElementById("deregisterBtn").disabled);
+    assert.ok(!d.getElementById("surveyStopBtn").classList.contains("hidden"));
+    assert.match(h.text("surveyStatus"), /Network 2 of 3/);
+    h.push({ ...fullState, survey: surveyState });
+    assert.ok(!d.getElementById("surveyBtn").disabled);
+    assert.ok(d.getElementById("surveyStopBtn").classList.contains("hidden"));
+});
+
+test("survey errors and hostile names are shown as text (#112)", () => {
+    const h = loadDashboard();
+    const hostile = '<img src=x onerror="alert(1)">';
+    h.push({ ...fullState, survey: { ...surveyState, error: hostile, results: [{ ...surveyState.results[0], name: hostile }] } });
+    assert.strictEqual(h.document.querySelector("#surveyTableBody img"), null);
+    assert.strictEqual(h.document.querySelector("#surveyError img"), null);
+    assert.ok(h.text("surveyError").includes(hostile));
+});

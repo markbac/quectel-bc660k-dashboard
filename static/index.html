@@ -595,6 +595,54 @@
                 </div>
             </section>
 
+            <!-- Network survey: try every network, compare signal, connect to the best -->
+            <section class="survey-row">
+                <div class="card survey-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-ranking-star"></i> Network Survey</span>
+                        <div class="scanner-actions">
+                            <label class="survey-option" for="surveySelectBest">
+                                <input type="checkbox" id="surveySelectBest" checked>
+                                Connect to the best network when done
+                            </label>
+                            <button id="surveyBtn" class="btn btn-sm btn-outline">
+                                <i class="fa-solid fa-play"></i> Survey all networks
+                            </button>
+                            <button id="surveyStopBtn" class="btn btn-sm btn-outline hidden">
+                                <i class="fa-solid fa-stop"></i> Stop
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body table-responsive">
+                        <p class="scan-note">
+                            Leaves the network, scans, then joins each available network in turn and measures its
+                            signal. It can take 10 to 20 minutes and the module has no connection while it runs.
+                            Networks your SIM is not allowed on are reported as denied.
+                        </p>
+                        <div id="surveyStatus" class="scan-note hidden" role="status"></div>
+                        <div id="surveyError" class="scan-error hidden" role="alert"></div>
+                        <table class="data-table" id="surveyTable">
+                            <thead>
+                                <tr>
+                                    <th>Network</th>
+                                    <th>PLMN</th>
+                                    <th>Result</th>
+                                    <th>RSRP (dBm)</th>
+                                    <th>RSRQ (dB)</th>
+                                    <th>SINR (dB)</th>
+                                    <th>PCI</th>
+                                    <th>EARFCN</th>
+                                    <th>Time (s)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="surveyTableBody">
+                                <tr><td colspan="9" class="empty-state">No survey run yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
             <!-- Row 6: Raw ASCII AT Terminal & File Log Toggle -->
             <section class="terminal-row">
                 <div class="card terminal-card">

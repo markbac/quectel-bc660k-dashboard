@@ -79,6 +79,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const registrationMsg = document.getElementById("registrationMsg");
     const deregisterBtn = document.getElementById("deregisterBtn");
     const registerAutoBtn = document.getElementById("registerAutoBtn");
+    const surveyBtn = document.getElementById("surveyBtn");
+    const surveyStopBtn = document.getElementById("surveyStopBtn");
+    const surveySelectBest = document.getElementById("surveySelectBest");
+    const surveyStatus = document.getElementById("surveyStatus");
+    const surveyError = document.getElementById("surveyError");
+    const surveyTableBody = document.getElementById("surveyTableBody");
     const networksTableBody = document.getElementById("networksTableBody");
 
     // Terminal & Disk Log Toggle
@@ -1056,6 +1062,7 @@ document.addEventListener("DOMContentLoaded", () => {
             deregisterBtn.disabled = registerAutoBtn.disabled = false;
             stopScanClock();
         }
+        renderSurvey(state.survey, state.is_scanning);
         scanError.textContent = state.scan_error || "";
         scanError.classList.toggle("hidden", !state.scan_error);
 
@@ -1125,6 +1132,64 @@ document.addEventListener("DOMContentLoaded", () => {
             console.error("Scan error:", err);
         }
     });
+
+    // Network survey: every visible network tried in turn, the best one joined.
+    const SURVEY_RESULT = { registered: "Registered", denied: "Denied", timeout: "No registration" };
+
+    function surveyNumber(value) {
+        return value === null || value === undefined ? "--" : String(value);
+    }
+
+    function renderSurvey(survey, scanning) {
+        if (!survey) return;
+        surveyBtn.disabled = Boolean(survey.running || scanning);
+        if (survey.running) {
+            // The module is busy changing network, so no other operator command.
+            scanBtn.disabled = deregisterBtn.disabled = registerAutoBtn.disabled = true;
+        }
+        surveyStopBtn.classList.toggle("hidden", !survey.running);
+        surveyStatus.textContent = survey.running ? survey.phase : (survey.phase && survey.results.length ? survey.phase : "");
+        surveyStatus.classList.toggle("hidden", !surveyStatus.textContent);
+        surveyError.textContent = survey.error || "";
+        surveyError.classList.toggle("hidden", !survey.error);
+        if (!survey.results || survey.results.length === 0) return;
+        surveyTableBody.innerHTML = survey.results.map((row) => {
+            const best = row.plmn === survey.best;
+            const note = best ? (survey.selected === row.plmn ? " (best, connected)" : " (best)") : "";
+            return `
+                <tr${best ? ' class="survey-best"' : ""}>
+                    <td><strong>${escapeHtml(row.name)}</strong>${escapeHtml(note)}</td>
+                    <td>${escapeHtml(row.plmn)}</td>
+                    <td>${escapeHtml(SURVEY_RESULT[row.status] || row.status)}</td>
+                    <td>${escapeHtml(surveyNumber(row.rsrp))}</td>
+                    <td>${escapeHtml(surveyNumber(row.rsrq))}</td>
+                    <td>${escapeHtml(surveyNumber(row.sinr))}</td>
+                    <td>${escapeHtml(surveyNumber(row.pci))}</td>
+                    <td>${escapeHtml(surveyNumber(row.earfcn))}</td>
+                    <td>${escapeHtml(surveyNumber(row.seconds))}</td>
+                </tr>`;
+        }).join("");
+    }
+
+    surveyBtn.addEventListener("click", async () => {
+        try {
+            const res = await fetch("/api/survey", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ select_best: surveySelectBest.checked }),
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                surveyError.textContent = data.detail || "The survey could not start.";
+                surveyError.classList.remove("hidden");
+            }
+        } catch (err) {
+            surveyError.textContent = "Could not reach the dashboard server.";
+            surveyError.classList.remove("hidden");
+        }
+    });
+
+    surveyStopBtn.addEventListener("click", () => fetch("/api/survey/stop", { method: "POST" }));
 
     // Register or deregister: AT+COPS=2, =0 or =1,2,"<plmn>",<act>.
     async function sendRegistration(body) {
