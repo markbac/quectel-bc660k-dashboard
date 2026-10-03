@@ -6,7 +6,7 @@ const { JSDOM } = require("jsdom");
 
 const root = path.resolve(__dirname, "..", "..");
 
-function loadDashboard() {
+function loadDashboard(options = {}) {
     const html = fs
         .readFileSync(path.join(root, "static", "index.html"), "utf8")
         .replace(/<script[^>]*src="https?:[^>]*><\/script>/g, "");
@@ -27,7 +27,11 @@ function loadDashboard() {
     };
     w.fetch = async () => ({
         ok: true,
-        json: async () => ({ ports: [], history: [], stats: { total_records: 0 } }),
+        json: async () => ({
+            ports: [],
+            history: options.history || [],
+            stats: { total_records: (options.history || []).length },
+        }),
     });
     w.Chart = class {
         update() {}
