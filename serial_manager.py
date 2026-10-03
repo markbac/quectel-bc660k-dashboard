@@ -190,8 +190,8 @@ class SerialManager:
             resp2 = self._send_at_cmd_raw("AT+CGATT=1")
             
             # Refresh assigned IP
-            ip_resp = self._send_at_cmd_raw("AT+CGPADDR=1")
-            self._parse_ip(ip_resp)
+            ip_resp = self._send_at_cmd_raw(f"AT+CGPADDR={cid}")
+            self._parse_cgpaddr(ip_resp)
             self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
             self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
             
@@ -745,6 +745,12 @@ class SerialManager:
             self.state["apn_info"]["pdp_cid"] = int(cid)
             self.state["apn_info"]["pdp_type"] = pdp_type
             self.state["apn_info"]["apn"] = apn or "Default / Blank"
+
+    def _parse_cgpaddr(self, resp: str):
+        """Store the IPv4 address from ``+CGPADDR: <cid>,"<addr>"``."""
+        match = re.search(r'\+CGPADDR:\s*\d+,\s*"?(\d{1,3}(?:\.\d{1,3}){3})"?', resp)
+        if match:
+            self.state["system_info"]["ip_address"] = match.group(1)
 
     def _parse_cgatt(self, resp: str):
         # +CGATT: 1
