@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import uvicorn
 
 import instance
+from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
 from pylogkit import setup_logging
@@ -32,7 +33,10 @@ args, _ = parser.parse_known_args()
 
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
 app.add_middleware(LocalOnlyMiddleware)
-manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path)
+try:
+    manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path)
+except SchemaTooNewError as exc:
+    sys.exit(f"ERROR: {exc}")
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []

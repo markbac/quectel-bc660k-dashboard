@@ -3,7 +3,8 @@ import os
 import sqlite3
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from contextlib import closing
+from typing import Any, Callable, Dict, List, Optional
 
 APP_DIR_NAME = "quectel-bc660k-dashboard"
 DB_FILE_NAME = "telemetry.db"
@@ -29,11 +30,70 @@ def default_db_path() -> str:
     return os.path.join(base, APP_DIR_NAME, DB_FILE_NAME)
 
 
+class SchemaTooNewError(RuntimeError):
+    """The database was written by a newer version of the dashboard."""
+
+
+def _migration_1_create_history(conn: sqlite3.Connection) -> None:
+    """Version 1: the original ``signal_history`` table."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            unix_time REAL,
+            rssi INTEGER,
+            csq INTEGER,
+            rsrp INTEGER,
+            rsrq INTEGER,
+            sinr INTEGER,
+            ber INTEGER,
+            quality_label TEXT,
+            operator TEXT,
+            mcc TEXT,
+            mnc TEXT,
+            cell_id TEXT,
+            pci INTEGER,
+            earfcn INTEGER,
+            band TEXT,
+            tac TEXT,
+            ip_address TEXT,
+            voltage INTEGER,
+            temperature REAL,
+            iccid TEXT,
+            imsi TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_unix_time ON signal_history(unix_time)")
+
+
+def _migration_2_iccid_index(conn: sqlite3.Connection) -> None:
+    """Version 2: index for per-ICCID time-range queries."""
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_iccid_time ON signal_history(iccid, unix_time)")
+
+
+# Ordered list of schema migrations. The position (1-based) is the schema
+# version stored in ``PRAGMA user_version``. Append new migrations; never edit
+# or reorder existing ones, and never drop data columns automatically.
+MIGRATIONS: List[Callable[[sqlite3.Connection], None]] = [
+    _migration_1_create_history,
+    _migration_2_iccid_index,
+]
+
+
+def latest_schema_version() -> int:
+    """The schema version this code writes."""
+    return len(MIGRATIONS)
+
+
 class DBManager:
     """Stores and queries signal history."""
 
     def __init__(self, db_path: Optional[str] = None):
-        """Open the database, creating the file and schema if they are missing."""
+        """Open the database, creating or migrating it as needed.
+
+        Raises:
+            SchemaTooNewError: the file was written by a newer dashboard.
+        """
         self.db_path = db_path or default_db_path()
         directory = os.path.dirname(os.path.abspath(self.db_path))
         os.makedirs(directory, exist_ok=True)
@@ -45,38 +105,54 @@ class DBManager:
         return conn
 
     def _init_db(self):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS signal_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    unix_time REAL,
-                    rssi INTEGER,
-                    csq INTEGER,
-                    rsrp INTEGER,
-                    rsrq INTEGER,
-                    sinr INTEGER,
-                    ber INTEGER,
-                    quality_label TEXT,
-                    operator TEXT,
-                    mcc TEXT,
-                    mnc TEXT,
-                    cell_id TEXT,
-                    pci INTEGER,
-                    earfcn INTEGER,
-                    band TEXT,
-                    tac TEXT,
-                    ip_address TEXT,
-                    voltage INTEGER,
-                    temperature REAL,
-                    iccid TEXT,
-                    imsi TEXT
+        """Bring the database to the latest schema version."""
+        with closing(sqlite3.connect(self.db_path, isolation_level=None)) as conn:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            has_table = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='signal_history'"
+            ).fetchone() is not None
+
+            if version > latest_schema_version():
+                raise SchemaTooNewError(
+                    f"{self.db_path} has schema version {version}, but this version of the "
+                    f"dashboard only understands up to {latest_schema_version()}. "
+                    "Update the dashboard or point --db-path at a different file."
                 )
-            """)
-            # Index for quick time-range queries
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_unix_time ON signal_history(unix_time)")
-            conn.commit()
+
+            # A database created before versioning existed has the table but no version.
+            if version == 0 and has_table:
+                version = 1
+                conn.execute("PRAGMA user_version = 1")
+
+            if version == latest_schema_version():
+                return
+
+            if has_table:  # existing data: keep a copy before changing anything
+                self._backup(conn, version)
+
+            for target in range(version + 1, latest_schema_version() + 1):
+                self._apply_migration(conn, target)
+
+    def _backup(self, conn: sqlite3.Connection, version: int) -> str:
+        """Copy the database to ``<file>.bak-v<version>`` before migrating."""
+        backup_path = f"{self.db_path}.bak-v{version}"
+        if os.path.exists(backup_path):
+            backup_path += time.strftime("-%Y%m%d%H%M%S")
+        with closing(sqlite3.connect(backup_path)) as dest:
+            conn.backup(dest)
+        return backup_path
+
+    @staticmethod
+    def _apply_migration(conn: sqlite3.Connection, target: int) -> None:
+        """Run migration ``target`` and bump the version in one transaction."""
+        conn.execute("BEGIN")
+        try:
+            MIGRATIONS[target - 1](conn)
+            conn.execute(f"PRAGMA user_version = {target}")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     def log_record(self, state: Dict[str, Any]):
         """Logs current signal and cell metrics into SQLite."""
