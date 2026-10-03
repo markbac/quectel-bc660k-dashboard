@@ -10,6 +10,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const telemetryIntervalSelect = document.getElementById("telemetryIntervalSelect");
     const copsIntervalSelect = document.getElementById("copsIntervalSelect");
+    const historyIntervalSelect = document.getElementById("historyIntervalSelect");
 
     // APN Elements
     const apnInput = document.getElementById("apnInput");
@@ -96,6 +97,21 @@ document.addEventListener("DOMContentLoaded", () => {
     // windows plot a downsampled series fetched from the database on demand.
     const chartWindowSelect = document.getElementById("chartWindow");
     let chartWindow = "live";
+    const customRange = document.getElementById("customRange");
+    const rangeStart = document.getElementById("rangeStart");
+    const rangeEnd = document.getElementById("rangeEnd");
+
+    // Query string for the selected window; custom ranges come from the date inputs.
+    function seriesQuery(windowName) {
+        const params = new URLSearchParams({ window: windowName });
+        if (windowName === "custom") {
+            const from = Date.parse(rangeStart.value);
+            const to = Date.parse(rangeEnd.value);
+            if (!Number.isNaN(from)) params.set("start", from / 1000);
+            if (!Number.isNaN(to)) params.set("end", to / 1000);
+        }
+        return params.toString();
+    }
 
     function chartLabel(unixSeconds, windowName) {
         const d = new Date(unixSeconds * 1000);
@@ -109,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (chartWindow === "live") return;
         const requested = chartWindow;
         try {
-            const res = await fetch(`/api/history/series?window=${encodeURIComponent(requested)}`);
+            const res = await fetch(`/api/history/series?${seriesQuery(requested)}`);
             if (!res.ok) return;
             const data = await res.json();
             if (requested !== chartWindow) return;  // user switched while loading
@@ -130,12 +146,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function setChartWindow(value) {
         chartWindow = value;
+        customRange.hidden = value !== "custom";
         chartData.labels.length = 0;
         chartData.rsrp.length = 0;
         chartData.rsrq.length = 0;
         if (chart) chart.update();
         loadChartSeries();
     }
+
+    [rangeStart, rangeEnd].forEach(input => input.addEventListener("change", loadChartSeries));
 
     if (chartWindowSelect) {
         chartWindowSelect.addEventListener("change", () => setChartWindow(chartWindowSelect.value));
@@ -449,12 +468,13 @@ document.addEventListener("DOMContentLoaded", () => {
     async function updateIntervalSettings() {
         const telemetry_interval = parseInt(telemetryIntervalSelect.value);
         const cops_scan_interval = parseInt(copsIntervalSelect.value);
+        const history_interval = parseInt(historyIntervalSelect.value);
 
         try {
             await fetch("/api/settings", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ telemetry_interval, cops_scan_interval })
+                body: JSON.stringify({ telemetry_interval, cops_scan_interval, history_interval })
             });
         } catch (err) {
             console.error("Error updating intervals:", err);
@@ -463,6 +483,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     telemetryIntervalSelect.addEventListener("change", updateIntervalSettings);
     copsIntervalSelect.addEventListener("change", updateIntervalSettings);
+    historyIntervalSelect.addEventListener("change", updateIntervalSettings);
 
     // Toggle Py-LogKit Disk Logging
     if (toggleFileLogBtn) {
@@ -611,6 +632,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (state.telemetry_interval) telemetryIntervalSelect.value = state.telemetry_interval;
         if (typeof state.cops_scan_interval === "number") copsIntervalSelect.value = state.cops_scan_interval;
+        if (state.history_interval) historyIntervalSelect.value = state.history_interval;
 
         // APN Info Update
         const apnInfo = state.apn_info || {};

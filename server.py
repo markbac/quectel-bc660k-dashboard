@@ -68,6 +68,7 @@ class FileLogToggleRequest(BaseModel):
 class SettingsRequest(BaseModel):
     telemetry_interval: Optional[int] = None
     cops_scan_interval: Optional[int] = None
+    history_interval: Optional[int] = None
 
 class APNRequest(BaseModel):
     apn: str
@@ -144,7 +145,7 @@ def disconnect_port():
 
 @app.post("/api/settings")
 def update_settings(req: SettingsRequest):
-    manager.update_settings(req.telemetry_interval, req.cops_scan_interval)
+    manager.update_settings(req.telemetry_interval, req.cops_scan_interval, req.history_interval)
     return {"status": "ok", "state": manager.state}
 
 @app.post("/api/apn")
@@ -189,25 +190,35 @@ WINDOW_SECONDS = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}
 
 @app.get("/api/history/series")
 def get_history_series(
-    window: str = Query("1h", pattern="^(1h|24h|7d|all|session)$"),
+    window: str = Query("1h", pattern="^(1h|24h|7d|all|session|custom)$"),
     max_points: int = Query(300, ge=10, le=2000),
+    start: Optional[float] = Query(None, description="custom window start, unix seconds"),
+    end: Optional[float] = Query(None, description="custom window end, unix seconds"),
 ):
     """Downsampled RSRP/RSRQ/SINR series of the connected SIM for charting.
 
-    ``window`` is ``1h``, ``24h``, ``7d``, ``all`` or ``session`` (the current
-    recording session). The series is averaged into at most ``max_points``.
+    ``window`` is ``1h``, ``24h``, ``7d``, ``all``, ``session`` (the current
+    recording session) or ``custom`` (between ``start`` and ``end``, unix
+    seconds, either optional). The series is averaged into at most
+    ``max_points``.
     """
     iccid = manager.current_iccid
-    start = None
     session_id = None
-    if window in WINDOW_SECONDS:
+    if window == "custom":
+        if start is not None and end is not None and start > end:
+            raise HTTPException(status_code=422, detail="start must not be after end")
+    elif window in WINDOW_SECONDS:
         start = time.time() - WINDOW_SECONDS[window]
-    elif window == "session":
+        end = None
+    else:
+        start = end = None
+    if window == "session":
         session_id = manager.session_id
         if session_id is None:
             return {"series": [], "window": window, "awaiting_identity": iccid is None}
     return {
-        "series": manager.db.get_series(iccid, start_time=start, session_id=session_id, max_points=max_points),
+        "series": manager.db.get_series(
+            iccid, start_time=start, end_time=end, session_id=session_id, max_points=max_points),
         "window": window,
         "awaiting_identity": iccid is None,
     }

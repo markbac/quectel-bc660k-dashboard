@@ -68,3 +68,24 @@ test("going back to live starts a fresh live trace", async () => {
     await tick();
     assert.deepStrictEqual(Array.from(h.chartRsrp()), [-95]);
 });
+
+test("a custom range sends its start and end", async () => {
+    const h = loadDashboard({ series });
+    await settle(h);
+    h.document.getElementById("rangeStart").value = "2025-01-01T00:00";
+    h.document.getElementById("rangeEnd").value = "2025-01-02T00:00";
+    choose(h, "custom");
+    await tick();
+    assert.strictEqual(h.document.getElementById("customRange").hidden, false);
+    const url = h.fetches.filter((u) => u.includes("window=custom")).pop();
+    const params = new URL(url, "http://localhost").searchParams;
+    assert.strictEqual(
+        Number(params.get("end")) - Number(params.get("start")), 86400);
+});
+
+test("the custom range inputs are hidden for other windows", async () => {
+    const h = loadDashboard({ series });
+    choose(h, "custom");
+    choose(h, "1h");
+    assert.strictEqual(h.document.getElementById("customRange").hidden, true);
+});
