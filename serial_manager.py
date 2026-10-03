@@ -978,7 +978,10 @@ class SerialManager:
         # Packet domain
         self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
         self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
-        self._parse_cgpaddr(self._send_at_cmd_raw("AT+CGPADDR=1"))
+        # Ask about the context AT+CGDCONT? reported: a real board uses context 0,
+        # and AT+CGPADDR=1 then answers without an address.
+        cid = self.state["apn_info"]["pdp_cid"]
+        self._parse_cgpaddr(self._send_at_cmd_raw(f"AT+CGPADDR={cid}"))
 
     def _poll_once(self):
         """Run one poll cycle.
@@ -1291,13 +1294,19 @@ class SerialManager:
             self.state["system_info"]["voltage"] = int(match.group(1))
 
     def _parse_cgdcont(self, resp: str):
-        # +CGDCONT: 1,"IP","iot.vodafone.com","0.0.0.0",0,0,0,0
-        match = re.search(r'\+CGDCONT:\s*(\d+),"([^"]+)","([^"]*)"', resp)
+        """Store context id, type and APN from ``+CGDCONT: <cid>,"<type>","<apn>"[,"<address>"...]``.
+
+        A real BC660K-GL reports context 0 and, once attached, the assigned
+        address in the fourth field; that is used until ``AT+CGPADDR`` confirms it.
+        """
+        match = re.search(r'\+CGDCONT:\s*(\d+),"([^"]+)","([^"]*)"(?:,"(\d{1,3}(?:\.\d{1,3}){3})")?', resp)
         if match:
-            cid, pdp_type, apn = match.groups()
+            cid, pdp_type, apn, address = match.groups()
             self.state["apn_info"]["pdp_cid"] = int(cid)
             self.state["apn_info"]["pdp_type"] = pdp_type
             self.state["apn_info"]["apn"] = apn or "Default / Blank"
+            if address and address != "0.0.0.0":
+                self.state["system_info"]["ip_address"] = address
 
     def _parse_cgpaddr(self, resp: str):
         """Store the IPv4 address from ``+CGPADDR: <cid>,"<addr>"``."""
