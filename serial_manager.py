@@ -17,8 +17,35 @@ from pylogkit import setup_logging
 __version__ = "1.2.0"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
 
+# Maximum response times from the BC660K-GL AT Commands Manual V1.3, plus a
+# margin. Matched by prefix, first match wins, on the upper-cased command.
+AT_TIMEOUTS = (
+    ("AT+CGATT=", 70.0),
+    ("AT+COPS=?", 35.0),
+    ("AT+QENG", 15.0),
+    ("AT+CSQ", 5.0),
+    ("AT+CESQ", 5.0),
+    ("AT+CGPADDR", 5.0),
+    ("AT+CGMR", 5.0),
+    ("AT+CGSN", 5.0),
+    ("ATI", 5.0),
+)
+DEFAULT_AT_TIMEOUT = 5.0
+
+
+def timeout_for(cmd: str, default: float = DEFAULT_AT_TIMEOUT) -> float:
+    """Return the response timeout in seconds for an AT command."""
+    normalised = cmd.strip().upper().replace(" ", "")
+    for prefix, seconds in AT_TIMEOUTS:
+        if normalised.startswith(prefix):
+            return seconds
+    return default
+
+
 class SerialManager:
     VERSION = __version__
+    ATTACH_CHECKS = 5
+    ATTACH_CHECK_INTERVAL = 1.0
 
     def __init__(
         self,
@@ -183,14 +210,20 @@ class SerialManager:
             cgdcont_cmd = f'AT+CGDCONT={cid},"{pdp_type}","{apn}"'
             resp1 = self._send_at_cmd_raw(cgdcont_cmd)
             
-            # Trigger packet domain attach
+            # Trigger packet domain attach (documented maximum response time: 70 s)
             resp2 = self._send_at_cmd_raw("AT+CGATT=1")
-            
+
+            # Read back the attach state, allowing a few seconds to settle
+            for attempt in range(self.ATTACH_CHECKS):
+                self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
+                if self.state["apn_info"]["attached"] or attempt == self.ATTACH_CHECKS - 1:
+                    break
+                time.sleep(self.ATTACH_CHECK_INTERVAL)
+
             # Refresh assigned IP
             ip_resp = self._send_at_cmd_raw(f"AT+CGPADDR={cid}")
             self._parse_cgpaddr(ip_resp)
             self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
-            self._parse_cgatt(self._send_at_cmd_raw("AT+CGATT?"))
             
             self._notify("state", self.state)
             return f"{resp1}\n{resp2}"
@@ -584,8 +617,11 @@ class SerialManager:
                 kept.append(line)
         return "".join(kept)
 
-    def _send_at_cmd_raw(self, cmd: str, timeout_sec: float = 2.0) -> str:
+    def _send_at_cmd_raw(self, cmd: str, timeout_sec: Optional[float] = None) -> str:
         """Send one AT command and return its response.
+
+        ``timeout_sec`` defaults to the documented maximum for the command
+        (see ``AT_TIMEOUTS``).
 
         Pending input is discarded before sending so a reply that arrived
         late for an earlier command is not mistaken for this one. After a
@@ -593,6 +629,9 @@ class SerialManager:
         """
         if not self.ser or not self.ser.is_open:
             return "ERROR: Port not open"
+
+        if timeout_sec is None:
+            timeout_sec = timeout_for(cmd)
 
         if not cmd.endswith("\r\n"):
             cmd_str = cmd + "\r\n"
@@ -646,7 +685,7 @@ class SerialManager:
             return resp
 
         with self.lock:
-            return self._send_at_cmd_raw(cmd, timeout_sec=3.0)
+            return self._send_at_cmd_raw(cmd, timeout_sec=timeout_for(cmd, default=30.0))
 
     def trigger_async_cops_scan(self):
         if self.state["is_scanning"]:
@@ -668,7 +707,7 @@ class SerialManager:
                     ]
                 else:
                     with self.lock:
-                        resp = self._send_at_cmd_raw("AT+COPS=?", timeout_sec=35.0)
+                        resp = self._send_at_cmd_raw("AT+COPS=?")
                         scanned = self._parse_cops_scan(resp)
 
                 self.state["networks_scan"] = scanned
@@ -707,38 +746,43 @@ class SerialManager:
 
         self._parse_cgpaddr(self._send_at_cmd_raw("AT+CGPADDR=1"))
 
+    def _poll_once(self):
+        """Run one poll cycle. The caller must hold ``self.lock``.
+
+        The cycle stops at the first timeout so an unresponsive modem does
+        not hold the lock for the sum of every command's timeout.
+        """
+        steps = [
+            ("AT+CSQ", self._parse_csq),
+            ("AT+CESQ", self._parse_cesq),
+            ('AT+QENG="servingcell"', self._parse_qeng_serving),
+            ('AT+QENG="neighbourcell"', self._parse_qeng_neighbour),
+        ]
+        steps += [
+            ("AT+COPS?", self._parse_cops_query),
+            ("AT+CEREG?", self._parse_cereg_query),
+            ("AT+CBC", self._parse_cbc),
+        ]
+        if self._temp_supported:
+            steps.append(("AT+QTEMP", self._parse_qtemp))
+
+        for cmd, parser in steps:
+            if not self.running:
+                return
+            resp = self._send_at_cmd_raw(cmd)
+            if resp == "ERROR: Timeout":
+                self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
+                return
+            parser(resp)
+            if cmd == 'AT+QENG="neighbourcell"' and not self.state["neighbour_cells"]:
+                self._parse_nuestats_cell(self._send_at_cmd_raw('AT+NUESTATS="CELL"'))
+
     def _poll_loop(self):
         last_db_log = 0
         while self.running and self.is_connected and not self.is_demo:
             try:
                 with self.lock:
-                    csq_resp = self._send_at_cmd_raw("AT+CSQ")
-                    self._parse_csq(csq_resp)
-
-                    cesq_resp = self._send_at_cmd_raw("AT+CESQ")
-                    self._parse_cesq(cesq_resp)
-
-                    qeng_resp = self._send_at_cmd_raw('AT+QENG="servingcell"')
-                    self._parse_qeng_serving(qeng_resp)
-
-                    qeng_neigh_resp = self._send_at_cmd_raw('AT+QENG="neighbourcell"')
-                    self._parse_qeng_neighbour(qeng_neigh_resp)
-
-                    if not self.state["neighbour_cells"]:
-                        nue_resp = self._send_at_cmd_raw('AT+NUESTATS="CELL"')
-                        self._parse_nuestats_cell(nue_resp)
-
-                    cops_resp = self._send_at_cmd_raw("AT+COPS?")
-                    self._parse_cops_query(cops_resp)
-
-                    cereg_resp = self._send_at_cmd_raw("AT+CEREG?")
-                    self._parse_cereg_query(cereg_resp)
-
-                    cbc_resp = self._send_at_cmd_raw("AT+CBC")
-                    self._parse_cbc(cbc_resp)
-
-                    if self._temp_supported:
-                        self._parse_qtemp(self._send_at_cmd_raw("AT+QTEMP"))
+                    self._poll_once()
 
                 self.state["last_update"] = time.time()
 

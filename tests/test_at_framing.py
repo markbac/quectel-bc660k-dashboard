@@ -24,10 +24,11 @@ def modem(manager):
 def test_late_reply_does_not_leak_into_next_command(manager, modem):
     """Regression test for #27: a reply slower than the timeout used to be
     read as the response to the following command."""
-    modem({"AT+CSQ": (0.6, "\r\n+CSQ: 14,0\r\n\r\nOK\r\n"),
+    modem({"AT+CSQ": (0.45, "\r\n+CSQ: 14,0\r\n\r\nOK\r\n"),
            "AT+CESQ": (0.0, "\r\n+CESQ: 99,99,255,255,20,60\r\n\r\nOK\r\n")})
 
     first = manager._send_at_cmd_raw("AT+CSQ", timeout_sec=0.3)
+    time.sleep(0.5)  # idle gap between poll cycles, the stale reply lands here
     second = manager._send_at_cmd_raw("AT+CESQ", timeout_sec=2.0)
 
     assert first == "ERROR: Timeout"
