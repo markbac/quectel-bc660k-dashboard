@@ -539,7 +539,58 @@ class SerialManager:
         self.state["connectivity_status"] = "Disconnected"
         self._notify("state", self.state)
 
+    # Lines that mark the end of a command response.
+    _FINAL_RESULT = re.compile(r"(?m)^(?:OK|ERROR|\+CME ERROR:.*|\+CMS ERROR:.*)\s*$")
+    # Unsolicited result codes that may be interleaved with a response.
+    _URC_PREFIXES = ("+CEREG", "+CSCON", "+QNBIOTEVENT", "+CGEV", "+CREG", "+CGREG", "+CPIN", "+PSM_EINT")
+
+    def _drain_input(self, quiet_sec: float = 0.0, max_sec: float = 0.0) -> str:
+        """Read and discard pending serial input.
+
+        With ``quiet_sec`` set, keep reading until the line has been quiet for
+        that long (or ``max_sec`` elapses), so a late reply cannot leak into
+        the next command.
+        """
+        discarded = ""
+        deadline = time.time() + max_sec
+        last_data = time.time()
+        while True:
+            if self.ser.in_waiting > 0:
+                discarded += self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
+                last_data = time.time()
+            elif quiet_sec <= 0 or time.time() - last_data >= quiet_sec or time.time() >= deadline:
+                break
+            else:
+                time.sleep(0.02)
+        return discarded
+
+    def _split_urcs(self, cmd: str, response: str) -> str:
+        """Remove unsolicited lines from a response and log them separately.
+
+        A line is kept when it belongs to the command itself, for example the
+        ``+CEREG:`` line returned for ``AT+CEREG?``.
+        """
+        own = re.match(r"AT(\+[A-Z0-9_]+)", cmd.upper())
+        own_prefix = own.group(1) if own else ""
+        kept = []
+        for line in response.splitlines(keepends=True):
+            stripped = line.strip()
+            is_urc = stripped.startswith(self._URC_PREFIXES) and not (
+                own_prefix and stripped.upper().startswith(own_prefix)
+            )
+            if is_urc:
+                self.log(f"URC< {stripped}", "RX")
+            else:
+                kept.append(line)
+        return "".join(kept)
+
     def _send_at_cmd_raw(self, cmd: str, timeout_sec: float = 2.0) -> str:
+        """Send one AT command and return its response.
+
+        Pending input is discarded before sending so a reply that arrived
+        late for an earlier command is not mistaken for this one. After a
+        timeout the line is drained until quiet before returning.
+        """
         if not self.ser or not self.ser.is_open:
             return "ERROR: Port not open"
 
@@ -550,29 +601,37 @@ class SerialManager:
 
         self.log(f"TX> {cmd_str.strip()}", "TX")
         try:
+            stale = self._drain_input()
+            if stale.strip():
+                self.log(f"[STALE] Discarded unread output before '{cmd.strip()}': {stale.strip()!r}", "WARNING")
+
             self.ser.write(cmd_str.encode("ascii", errors="ignore"))
-            time.sleep(0.1)
             response = ""
             start = time.time()
             timed_out = True
 
             while time.time() - start < timeout_sec:
                 if self.ser.in_waiting > 0:
-                    chunk = self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
-                    response += chunk
-                    if "OK\r\n" in response or "ERROR\r\n" in response:
+                    response += self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
+                    if self._FINAL_RESULT.search(response):
                         timed_out = False
                         break
-                time.sleep(0.04)
+                else:
+                    time.sleep(0.02)
 
-            if timed_out and not response:
-                self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
-                return "ERROR: Timeout"
+            if timed_out:
+                late = self._drain_input(quiet_sec=0.3, max_sec=1.0)
+                if late.strip():
+                    self.log(f"[LATE] Discarded late output after timeout: {late.strip()!r}", "WARNING")
+                if not response:
+                    self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
+                    return "ERROR: Timeout"
 
             if not self.state.get("hardware_communicated", False):
                 self.state["hardware_communicated"] = True
                 self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
 
+            response = self._split_urcs(cmd, response)
             self.log(f"RX< {response.strip()}", "RX")
             return response
         except Exception as e:
