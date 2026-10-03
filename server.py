@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import uvicorn
 
 import instance
+from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
 from pylogkit import setup_logging
 
@@ -30,6 +31,7 @@ parser.add_argument("--no-file-log", action="store_true", help="Disable writing 
 args, _ = parser.parse_known_args()
 
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
+app.add_middleware(LocalOnlyMiddleware)
 manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path)
 
 # Store active WebSocket connections
