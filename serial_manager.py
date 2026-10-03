@@ -13,6 +13,7 @@ import instance
 import timers
 from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
+from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
 from pylogkit import setup_logging
 from transcript import TranscriptRecorder
 
@@ -123,6 +124,7 @@ class SerialManager:
         )
         self.recorder: Optional[TranscriptRecorder] = None
         self.scan_lock = threading.Lock()
+        self.driver: ModuleDriver = DEFAULT_DRIVER
 
         self.poll_thread: Optional[threading.Thread] = None
         self.running: bool = False
@@ -217,6 +219,7 @@ class SerialManager:
                 "voltage": None,
                 "temperature": None,
                 "firmware": "--",
+                "module": "--",
                 "sleep_clock": None
             },
             "neighbour_cells": [],
@@ -786,6 +789,7 @@ class SerialManager:
         self.ser = None
         self.is_connected = False
         self.is_demo = False
+        self.driver = DEFAULT_DRIVER
         self.state = self._get_initial_state()
         self.state["logs"] = logs
         self.state["connected"] = False
@@ -985,10 +989,10 @@ class SerialManager:
                 self._poll_hardware_info()
                 self._hardware_info_loaded = True
 
-        # Fast items every cycle: AT+QENG=0 carries RSRP/RSRQ/RSSI/SINR and the cells.
+        # Fast items every cycle: the serving-cell command (AT+QENG=0 on the BC660K) carries RSRP/RSRQ/RSSI/SINR and the cells.
         if not self._run_step("AT+CSQ", self._parse_csq):
             return
-        if not self._run_step("AT+QENG=0", self._parse_qeng):
+        if not self._run_step(self.driver.cell_command, self._parse_cell):
             return
         if self.state["signal"]["rsrp"] is None:  # QENG gave no RSRP: ask CESQ instead
             if not self._run_step("AT+CESQ", self._parse_cesq):
@@ -1144,10 +1148,25 @@ class SerialManager:
                 self.state["signal"]["rsrq"] = round(rsrq_db, 1)
 
     def _parse_ati(self, resp: str):
-        """Store the firmware revision from the ``Revision:`` line of ``ATI``."""
+        """Store the firmware revision and pick the driver for the module's model.
+
+        The model comes from the ``ATI`` reply. An unrecognised reply keeps the
+        BC660K commands, which is what the dashboard was written for.
+        """
         match = re.search(r"Revision:\s*(\S+)", resp)
         if match:
             self.state["system_info"]["firmware"] = match.group(1)
+        driver = detect_driver(resp)
+        if driver is None:
+            replied = [ln for ln in resp.splitlines() if ln.strip() and ln.strip() not in ("OK", "ERROR")]
+            if replied and self.state["system_info"]["module"] == "--":
+                self.log("[MODULE] Model not recognised from ATI; using the BC660K commands.", "WARNING")
+            return
+        model = driver.model_name(resp)
+        if driver is not self.driver or self.state["system_info"]["module"] != model:
+            self.log(f"[MODULE] Detected {model}; serving cell via {driver.cell_command}.", "INFO")
+        self.driver = driver
+        self.state["system_info"]["module"] = model
 
     def _parse_cpin(self, resp: str):
         """Store the SIM state from ``+CPIN: <code>``."""
@@ -1307,73 +1326,43 @@ class SerialManager:
         except ValueError:
             return None
 
-    def _parse_qeng(self, resp: str):
-        """Parse ``AT+QENG=0`` (serving cell and neighbour cells).
+    def _parse_cell(self, resp: str):
+        """Parse the serving-cell reply with the driver chosen for this module."""
+        info = self.driver.parse_cell(resp)
+        if info is not None:
+            self._apply_cell_info(info)
 
-        Documented format (BC660K-GL AT Commands Manual V1.3)::
-
-            +QENG: 0,<earfcn>,<earfcn_offset>,<pci>,<cell_id>,[<rsrp>],[<rsrq>],
-                   [<rssi>],[<sinr>],<band>,<tac>,[<ecl>],[<tx_pwr>],<operation_mode>
-            +QENG: 1,<earfcn>,<pci>,<rsrp>,<rsrq>          (one per neighbour)
-
-        Optional fields may be empty. Neighbours are replaced on every call so
-        a cell that disappears is removed.
-        """
-        neighbours = []
-        for line in resp.splitlines():
-            line = line.strip()
-            if not line.startswith("+QENG:"):
-                continue
-            fields = [f.strip().strip('"') for f in line[len("+QENG:"):].split(",")]
-            if fields[0] == "0" and len(fields) >= 11:
-                self._apply_serving_cell(fields)
-            elif fields[0] == "1" and len(fields) >= 5:
-                earfcn, pci, rsrp, rsrq = (self._optional_int(f) for f in fields[1:5])
-                if earfcn is not None and pci is not None:
-                    neighbours.append({
-                        "rat": "NB-IoT",
-                        "earfcn": earfcn,
-                        "pci": pci,
-                        "rsrp": rsrp,
-                        "rsrq": rsrq,
-                    })
-        if "+QENG:" in resp:
-            self.state["neighbour_cells"] = neighbours
-
-    def _apply_serving_cell(self, fields: List[str]):
-        """Store the serving-cell fields of one ``+QENG: 0,...`` line."""
-        earfcn = self._optional_int(fields[1])
-        pci = self._optional_int(fields[3])
-        cell_id = fields[4]
-        rsrp, rsrq, rssi, sinr = (self._optional_int(f) for f in fields[5:9])
-        band = fields[9]
-        tac = fields[10]
-
+    def _apply_cell_info(self, info: CellInfo):
+        """Store what a driver read; fields it did not report keep their value."""
         signal = self.state["signal"]
-        if rsrp is not None:
-            signal["rsrp"] = rsrp
-            signal["quality_label"] = self._quality_label(rsrp)
-        if rsrq is not None:
-            signal["rsrq"] = rsrq
-        if rssi is not None:
-            signal["rssi"] = rssi
-        if sinr is not None:
-            signal["sinr"] = sinr
+        if info.rsrp is not None:
+            signal["rsrp"] = info.rsrp
+            signal["quality_label"] = self._quality_label(info.rsrp)
+        for key in ("rsrq", "rssi", "sinr"):
+            value = getattr(info, key)
+            if value is not None:
+                signal[key] = value
 
-        cell_dec = self._hex_to_int(cell_id)
-        tac_dec = self._hex_to_int(tac)
-        self.state["serving_cell"].update({
-            "rat": "NB-IoT",
-            "cell_id": cell_id or "--",
-            "cell_id_dec": cell_dec if cell_dec is not None else "--",
-            "pci": pci if pci is not None else "--",
-            "earfcn": earfcn if earfcn is not None else "--",
-            "band": band or "--",
-            "tac": tac or "--",
-            "tac_dec": tac_dec if tac_dec is not None else "--",
-        })
-        if len(fields) >= 14:
-            self.state["serving_cell"]["operation_mode"] = fields[13]
+        if info.cell_id is not None or info.pci is not None or info.earfcn is not None:
+            cell = self.state["serving_cell"]
+            cell_dec = self._hex_to_int(info.cell_id or "")
+            tac_dec = self._hex_to_int(info.tac or "")
+            cell.update({
+                "rat": info.rat,
+                "cell_id": info.cell_id or "--",
+                "cell_id_dec": cell_dec if cell_dec is not None else "--",
+                "pci": info.pci if info.pci is not None else "--",
+                "earfcn": info.earfcn if info.earfcn is not None else "--",
+                "band": info.band or "--",
+                "tac": info.tac or "--",
+                "tac_dec": tac_dec if tac_dec is not None else "--",
+            })
+            if info.mcc is not None and info.mnc is not None:
+                cell["mcc"], cell["mnc"] = info.mcc, info.mnc
+            if info.operation_mode is not None:
+                cell["operation_mode"] = info.operation_mode
+        if info.neighbours is not None:
+            self.state["neighbour_cells"] = info.neighbours
 
     def _parse_cops_query(self, resp: str):
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)

@@ -92,6 +92,20 @@ These are requests. The network decides the values actually granted, so the pane
 
 ---
 
+## 📟 Supported Modules
+
+The module is identified from the `ATI` reply when the modem first answers, and the serving-cell command is chosen to match. The Module field in the System card shows the result. An unrecognised reply keeps the BC660K commands and logs a warning.
+
+| Family | Models matched | Serving-cell command | Status |
+|---|---|---|---|
+| Quectel BC660K | BC660K-GL | `AT+QENG=0` | Used on a real board |
+| Quectel LTE | BG95, BG96, EC25, EG25, EG91, EG95 | `AT+QENG="servingcell"` | Written from the vendor manual, not tested on hardware |
+| SIMCom LTE | SIM7000, SIM7600 | `AT+CPSI?` | Written from the vendor manual, not tested on hardware |
+
+The parsers live in `drivers.py`, one small class per family, so another module is one class and one entry in `DRIVERS`. The other start-up and poll commands (`AT+CSQ`, `AT+COPS?`, `AT+CEREG?`, `AT+CBC`, power-saving queries) are the 3GPP or BC660K ones; where a module rejects one, the matching field simply stays empty. u-blox modules (`AT+UCED`) are not supported yet.
+
+---
+
 ## 🧰 Bench Scripts
 
 `tools/` holds small scripts for checking a board without the dashboard. They take the port as an argument:

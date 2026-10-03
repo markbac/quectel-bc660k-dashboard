@@ -44,6 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const imeiVal = document.getElementById("imeiVal");
     const voltageVal = document.getElementById("voltageVal");
     const firmwareVal = document.getElementById("firmwareVal");
+    const moduleVal = document.getElementById("moduleVal");
     const tempVal = document.getElementById("tempVal");
     const tempItem = document.getElementById("tempItem");
 
@@ -934,6 +935,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ipVal.textContent = isCommunicated ? (sys.ip_address || "Not Connected") : "--";
         voltageVal.textContent = isCommunicated && sys.voltage ? `${sys.voltage} mV (${(sys.voltage / 1000).toFixed(2)} V)` : "--";
         firmwareVal.textContent = isCommunicated ? (sys.firmware || "N/A") : "--";
+        moduleVal.textContent = isCommunicated ? (sys.module || "--") : "--";
         // Temperature is only shown when the module reports it.
         const hasTemp = isCommunicated && typeof sys.temperature === "number";
         tempItem.classList.toggle("hidden", !hasTemp);

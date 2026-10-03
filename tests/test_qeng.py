@@ -14,7 +14,7 @@ def _resp(*lines):
 
 
 def test_serving_cell_fields_are_parsed(manager):
-    manager._parse_qeng(_resp(SERVING))
+    manager._parse_cell(_resp(SERVING))
 
     sc = manager.state["serving_cell"]
     assert sc["earfcn"] == 6300
@@ -32,23 +32,23 @@ def test_serving_cell_fields_are_parsed(manager):
 
 def test_empty_optional_fields_do_not_overwrite_values(manager):
     manager.state["signal"]["rsrp"] = -90
-    manager._parse_qeng(_resp('+QENG: 0,6300,0,320,"01D2F401",,,,,8,"5F4E",,,0'))
+    manager._parse_cell(_resp('+QENG: 0,6300,0,320,"01D2F401",,,,,8,"5F4E",,,0'))
 
     assert manager.state["signal"]["rsrp"] == -90
     assert manager.state["serving_cell"]["pci"] == 320
 
 
 def test_neighbours_are_replaced_each_time(manager):
-    manager._parse_qeng(_resp(SERVING, NEIGHBOUR, "+QENG: 1,6400,12,-105,-14"))
+    manager._parse_cell(_resp(SERVING, NEIGHBOUR, "+QENG: 1,6400,12,-105,-14"))
     assert [n["pci"] for n in manager.state["neighbour_cells"]] == [321, 12]
 
-    manager._parse_qeng(_resp(SERVING))
+    manager._parse_cell(_resp(SERVING))
     assert manager.state["neighbour_cells"] == []
 
 
 def test_error_response_keeps_previous_state(manager):
-    manager._parse_qeng(_resp(SERVING, NEIGHBOUR))
-    manager._parse_qeng("\r\nERROR\r\n")
+    manager._parse_cell(_resp(SERVING, NEIGHBOUR))
+    manager._parse_cell("\r\nERROR\r\n")
     assert len(manager.state["neighbour_cells"]) == 1
     assert manager.state["serving_cell"]["pci"] == 320
 
@@ -76,7 +76,7 @@ def test_simulator_emits_the_documented_format(manager):
     manager.state["signal"].update({"rsrp": -95, "rsrq": -11, "rssi": -85, "sinr": 12})
 
     resp = manager._simulated_at_response("AT+QENG=0")
-    manager._parse_qeng(resp)
+    manager._parse_cell(resp)
 
     assert manager.state["serving_cell"]["pci"] == 320
     assert len(manager.state["neighbour_cells"]) == 1
