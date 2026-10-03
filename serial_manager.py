@@ -125,6 +125,7 @@ class SerialManager:
         self.recorder: Optional[TranscriptRecorder] = None
         self.scan_lock = threading.Lock()
         self.driver: ModuleDriver = DEFAULT_DRIVER
+        self._scan_in_progress: bool = False
 
         self.poll_thread: Optional[threading.Thread] = None
         self.running: bool = False
@@ -878,6 +879,8 @@ class SerialManager:
 
     def _on_channel_timeout(self):
         """The modem stayed silent."""
+        if self._scan_in_progress:
+            return  # a scan we started keeps the module quiet; do not call it dead
         self.state["modem_responding"] = False
         if self.state["modem_state"] == MODEM_AWAKE:
             self._set_modem_state(MODEM_UNRESPONSIVE)
@@ -913,8 +916,15 @@ class SerialManager:
                     ]
                 else:
                     with self.lock:
-                        resp = self._send_at_cmd_raw("AT+COPS=?")
+                        # The module does not answer anything else during a scan.
+                        self._scan_in_progress = True
+                        try:
+                            resp = self._send_at_cmd_raw("AT+COPS=?")
+                        finally:
+                            self._scan_in_progress = False
                         scanned = self._parse_cops_scan(resp)
+                    if resp == TIMEOUT_RESPONSE:
+                        self.log("[SCAN FAILED] No answer to AT+COPS=? within the scan time allowed.", "WARNING")
 
                 self.state["networks_scan"] = scanned
                 self.state["is_scanning"] = False
