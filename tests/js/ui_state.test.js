@@ -56,3 +56,11 @@ test("every element id the script looks up exists in the page", () => {
     const missing = ids.filter((id) => !document.getElementById(id));
     assert.deepStrictEqual(missing, []);
 });
+
+test("temperature tile is hidden unless the module reports a value", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, system_info: { ...fullState.system_info, temperature: null } });
+    assert.ok(h.document.getElementById("tempItem").classList.contains("hidden"));
+    h.push(fullState);
+    assert.ok(!h.document.getElementById("tempItem").classList.contains("hidden"));
+});

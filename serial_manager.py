@@ -69,6 +69,7 @@ class SerialManager:
 
         self.last_cops_op: str = "Unknown"
         self.last_cereg_stat: str = "Unknown"
+        self._temp_supported: bool = False
 
         # Current state cache
         self.state = self._get_initial_state()
@@ -125,12 +126,6 @@ class SerialManager:
                 "voltage": None,
                 "temperature": None,
                 "firmware": "--"
-            },
-            "location": {
-                "lat": None,
-                "lon": None,
-                "accuracy": None,
-                "source": "Awaiting Cell Geolocation"
             },
             "neighbour_cells": [],
             "networks_scan": [],
@@ -494,6 +489,13 @@ class SerialManager:
             self.state["mode"] = "DEMO"
             self.state["connectivity_status"] = "Simulated Hardware Mode (--demo)"
             self.running = True
+            self.state["system_info"].update({
+                "imei": "860000000000000",
+                "firmware": "BC660KGLAAR01A05 (simulated)",
+                "ip_address": "10.142.88.204",
+                "temperature": 31,
+            })
+            self.state["sim_info"]["sim_status"] = "READY"
             self.log("[DEMO MODE] Started hardware simulator (CLI --demo flag)", "INFO")
 
             self.poll_thread = threading.Thread(target=self._demo_loop, daemon=True)
@@ -613,8 +615,10 @@ class SerialManager:
         threading.Thread(target=_scan_worker, daemon=True).start()
 
     def _poll_hardware_info(self):
-        self._send_at_cmd_raw("ATI")
-        self._send_at_cmd_raw("AT+CPIN?")
+        """Read static identity and status information once after connecting."""
+        self._parse_ati(self._send_at_cmd_raw("ATI"))
+        self._parse_cpin(self._send_at_cmd_raw("AT+CPIN?"))
+        self._parse_imei(self._send_at_cmd_raw("AT+CGSN=1"))
 
         iccid_resp = self._send_at_cmd_raw("AT+QCCID")
         self._parse_iccid(iccid_resp)
@@ -625,11 +629,18 @@ class SerialManager:
         cbc_resp = self._send_at_cmd_raw("AT+CBC")
         self._parse_cbc(cbc_resp)
 
+        # Not every firmware supports AT+QTEMP. Only keep polling it if the
+        # first query returned a value.
+        self._parse_qtemp(self._send_at_cmd_raw("AT+QTEMP"))
+        self._temp_supported = self.state["system_info"]["temperature"] is not None
+
         cgdcont_resp = self._send_at_cmd_raw("AT+CGDCONT?")
         self._parse_cgdcont(cgdcont_resp)
 
         cgatt_resp = self._send_at_cmd_raw("AT+CGATT?")
         self._parse_cgatt(cgatt_resp)
+
+        self._parse_cgpaddr(self._send_at_cmd_raw("AT+CGPADDR=1"))
 
     def _poll_loop(self):
         last_db_log = 0
@@ -660,6 +671,9 @@ class SerialManager:
 
                     cbc_resp = self._send_at_cmd_raw("AT+CBC")
                     self._parse_cbc(cbc_resp)
+
+                    if self._temp_supported:
+                        self._parse_qtemp(self._send_at_cmd_raw("AT+QTEMP"))
 
                 self.state["last_update"] = time.time()
 
@@ -742,6 +756,32 @@ class SerialManager:
             if rsrq not in (255, 99):
                 rsrq_db = -20 + (rsrq * 0.5)
                 self.state["signal"]["rsrq"] = round(rsrq_db, 1)
+
+    def _parse_ati(self, resp: str):
+        """Store the firmware revision from the ``Revision:`` line of ``ATI``."""
+        match = re.search(r"Revision:\s*(\S+)", resp)
+        if match:
+            self.state["system_info"]["firmware"] = match.group(1)
+
+    def _parse_cpin(self, resp: str):
+        """Store the SIM state from ``+CPIN: <code>``."""
+        match = re.search(r"\+CPIN:\s*([A-Z0-9 ]+)", resp)
+        if match:
+            self.state["sim_info"]["sim_status"] = match.group(1).strip()
+        elif re.search(r"\+CME ERROR:\s*(?:10|SIM not inserted)", resp, re.I):
+            self.state["sim_info"]["sim_status"] = "NOT INSERTED"
+
+    def _parse_imei(self, resp: str):
+        """Store the IMEI from ``+CGSN: <imei>`` or a bare 15 digit line."""
+        match = re.search(r"\+CGSN:\s*\"?(\d{15})", resp) or re.search(r"(?m)^(\d{15})\s*$", resp)
+        if match:
+            self.state["system_info"]["imei"] = match.group(1)
+
+    def _parse_qtemp(self, resp: str):
+        """Store the module temperature in degrees Celsius, if reported."""
+        match = re.search(r"\+QTEMP:\s*(-?\d+)(?:,\s*(-?\d+))?", resp)
+        if match:
+            self.state["system_info"]["temperature"] = int(match.group(2) or match.group(1))
 
     def _parse_iccid(self, resp: str):
         match = re.search(r"(?:89\d{16,18}\w?)", resp)
