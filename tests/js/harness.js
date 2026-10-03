@@ -39,22 +39,36 @@ function loadDashboard(options = {}) {
                 ports: [],
                 history: options.history || [],
                 stats: { total_records: (options.history || []).length },
+                series: options.series || [],
                 awaiting_identity: Boolean(options.awaitingIdentity),
             }),
         };
     };
     w.Chart = class {
+        constructor(ctx, config) {
+            harness.chartConfig = config;
+        }
         update() {}
     };
     w.HTMLCanvasElement.prototype.getContext = () => ({});
     w.alert = () => {};
     w.confirm = () => true;
 
+    // Run the page's DOMContentLoaded handler exactly once, synchronously,
+    // instead of also letting jsdom fire the real event later (which would
+    // start a second copy of the dashboard).
+    let onReady = null;
+    w.document.addEventListener = (type, handler) => {
+        if (type === "DOMContentLoaded") {
+            onReady = handler;
+        }
+    };
     w.eval(fs.readFileSync(path.join(root, "static", "js", "app.js"), "utf8"));
-    w.document.dispatchEvent(new w.Event("DOMContentLoaded"));
+    onReady();
 
     harness.push = (state) =>
         harness.socket.onmessage({ data: JSON.stringify({ type: "state", data: state }) });
+    harness.chartRsrp = () => harness.chartConfig.data.datasets[0].data;
     harness.text = (id) => w.document.getElementById(id).textContent;
     return harness;
 }

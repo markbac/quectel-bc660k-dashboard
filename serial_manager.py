@@ -248,6 +248,11 @@ class SerialManager:
         iccid = self.state["sim_info"]["iccid"]
         return iccid if DBManager.is_valid_iccid(iccid) else None
 
+    @property
+    def session_id(self) -> Optional[int]:
+        """Id of the current recording session, or None when not recording."""
+        return self._session_id
+
     def _update_session(self):
         """Keep the database session in step with the connected SIM.
 

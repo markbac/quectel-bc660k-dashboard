@@ -14,6 +14,8 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 - 📡 **Automatic Initial & Scheduled Network Scan (`AT+COPS=?`)**: Runs a full cellular spectrum scan by default on connection and periodically in an asynchronous non-blocking thread.
 - ⚙️ **Configurable Polling Frequencies**: Web UI controls for Signal Poll Interval (`1s`, `2s`, `3s`, `5s`, `10s`) and Spectrum Scan Frequency (`Off`, `30s`, `60s`, `120s`, `300s`).
 - 🗄️ **SQLite Data Logging & CSV Export**: Automatic SQLite telemetry persistence (created on first start in your per-user data directory, never committed), historical analytics summary, and one-click CSV export.
+- 📈 **History Chart**: the trend chart shows the live trace or a stored window (last hour, 24 hours, 7 days, this session, all history). Stored windows are averaged into at most 300 points by the server (`GET /api/history/series?window=1h|24h|7d|session|all&max_points=`) and fetched on demand.
+- 🪶 **Light Polling**: each cycle sends only `AT+CSQ` and `AT+QENG`; operator, registration, voltage and temperature are polled on slower timers, and `+CEREG` updates arrive as URCs.
 - 🧹 **Fresh History Reset**: Instantly clear historical database records to start telemetry logging fresh.
 - 💻 **Built-in AT Command Console**: Execute manual AT commands with quick-action presets (`AT`, `ATI`, `AT+CSQ`, `AT+QCCID`, `AT+CIMI`, `AT+CBC`, `AT+QENG`, `AT+COPS?`, `AT+CEREG?`).
 - 🛑 **Graceful Shutdown & Signal Handling**: Supports web Exit button shutdown and terminal `Ctrl+C` / `Ctrl+X` clean resource releases.

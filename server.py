@@ -183,6 +183,35 @@ def get_history(limit: int = Query(200, ge=10, le=2000)):
         "awaiting_identity": iccid is None,
     }
 
+WINDOW_SECONDS = {"1h": 3600, "24h": 86400, "7d": 7 * 86400}
+
+
+@app.get("/api/history/series")
+def get_history_series(
+    window: str = Query("1h", pattern="^(1h|24h|7d|all|session)$"),
+    max_points: int = Query(300, ge=10, le=2000),
+):
+    """Downsampled RSRP/RSRQ/SINR series of the connected SIM for charting.
+
+    ``window`` is ``1h``, ``24h``, ``7d``, ``all`` or ``session`` (the current
+    recording session). The series is averaged into at most ``max_points``.
+    """
+    iccid = manager.current_iccid
+    start = None
+    session_id = None
+    if window in WINDOW_SECONDS:
+        start = time.time() - WINDOW_SECONDS[window]
+    elif window == "session":
+        session_id = manager.session_id
+        if session_id is None:
+            return {"series": [], "window": window, "awaiting_identity": iccid is None}
+    return {
+        "series": manager.db.get_series(iccid, start_time=start, session_id=session_id, max_points=max_points),
+        "window": window,
+        "awaiting_identity": iccid is None,
+    }
+
+
 @app.get("/api/sessions")
 def get_sessions():
     """Recording sessions of the connected SIM (empty until its ICCID is known)."""

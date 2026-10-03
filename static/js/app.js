@@ -92,6 +92,55 @@ document.addEventListener("DOMContentLoaded", () => {
         rsrq: []
     };
 
+    // Chart window: "live" plots the last 25 polls as they arrive; the other
+    // windows plot a downsampled series fetched from the database on demand.
+    const chartWindowSelect = document.getElementById("chartWindow");
+    let chartWindow = "live";
+
+    function chartLabel(unixSeconds, windowName) {
+        const d = new Date(unixSeconds * 1000);
+        const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        return windowName === "1h" || windowName === "24h" || windowName === "session"
+            ? time
+            : `${d.toLocaleDateString([], { day: "2-digit", month: "short" })} ${time}`;
+    }
+
+    async function loadChartSeries() {
+        if (chartWindow === "live") return;
+        const requested = chartWindow;
+        try {
+            const res = await fetch(`/api/history/series?window=${encodeURIComponent(requested)}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            if (requested !== chartWindow) return;  // user switched while loading
+            const series = data.series || [];
+            chartData.labels.length = 0;
+            chartData.rsrp.length = 0;
+            chartData.rsrq.length = 0;
+            series.forEach(row => {
+                chartData.labels.push(chartLabel(row.unix_time, requested));
+                chartData.rsrp.push(row.rsrp === null ? null : Math.round(row.rsrp * 10) / 10);
+                chartData.rsrq.push(row.rsrq === null ? null : Math.round(row.rsrq * 10) / 10);
+            });
+            if (chart) chart.update();
+        } catch (err) {
+            console.error("Error loading history series:", err);
+        }
+    }
+
+    function setChartWindow(value) {
+        chartWindow = value;
+        chartData.labels.length = 0;
+        chartData.rsrp.length = 0;
+        chartData.rsrq.length = 0;
+        if (chart) chart.update();
+        loadChartSeries();
+    }
+
+    if (chartWindowSelect) {
+        chartWindowSelect.addEventListener("change", () => setChartWindow(chartWindowSelect.value));
+    }
+
     // Initialize Signal Trend Chart
     function initChart() {
         const ctx = document.getElementById("signalChart").getContext("2d");
@@ -714,7 +763,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // Push data to Live Trend Chart only if signal data present
-        if (hasSignalData) {
+        if (hasSignalData && chartWindow === "live") {
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             if (chartData.labels.length >= 25) {
                 chartData.labels.shift();
@@ -744,6 +793,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (iccidChanged) {
             loadHistory();
+            loadChartSeries();
         }
     }
 
@@ -830,5 +880,6 @@ document.addEventListener("DOMContentLoaded", () => {
     // History changes slowly: refresh on a timer and when the SIM changes,
     // not on every state push.
     setInterval(loadHistory, HISTORY_REFRESH_MS);
+    setInterval(loadChartSeries, HISTORY_REFRESH_MS);
     connectWebSocket();
 });
