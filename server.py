@@ -21,11 +21,12 @@ from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
 from pylogkit import setup_logging
+from port_detect import detect_at_port
 
 # Parse Command Line Arguments
 parser = argparse.ArgumentParser(description="Quectel BC660K Signal & Network Web Dashboard")
 parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode")
-parser.add_argument("--port", "-p", type=str, default="COM3", help="Initial COM port to connect on startup (default: COM3)")
+parser.add_argument("--port", "-p", type=str, default=None, help="Serial port to connect to on startup, e.g. COM3 or /dev/ttyUSB0; 'auto' probes every port for an AT modem (default: do not connect)")
 parser.add_argument("--baud", "-b", type=int, default=115200, help="Initial baud rate (default: 115200)")
 parser.add_argument("--db-path", type=str, default=None, help="SQLite database file (default: per-user data directory, or $QUECTEL_DASHBOARD_DB)")
 parser.add_argument("--retention-days", type=float, default=90, help="Delete history older than this many days (0 keeps everything, default: 90)")
@@ -118,6 +119,16 @@ def run_ping(req: PingRequest):
 def run_dns(req: DNSRequest):
     res = manager.run_dns_query(req.domain or "leshan.eclipseprojects.io")
     return {"status": "ok", "result": res, "state": manager.state}
+@app.post("/api/detect")
+def detect_port():
+    """Probe the system's serial ports and report the one with an AT modem."""
+    if manager.is_connected and manager.port:
+        return {"port": manager.port, "baudrate": manager.baudrate}
+    found = detect_at_port()
+    if found is None:
+        raise HTTPException(status_code=404, detail="No serial port answered AT")
+    return {"port": found[0], "baudrate": found[1]}
+
 @app.get("/api/ports")
 def get_ports():
     return {"ports": manager.get_ports()}
@@ -280,6 +291,14 @@ if __name__ == "__main__":
     if args.demo:
         print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
         manager.enable_demo_mode()
+    elif args.port == "auto":
+        print("[STARTUP] Probing serial ports for an AT modem...")
+        found = detect_at_port(bauds=(args.baud,))
+        if found:
+            print(f"[STARTUP] Found modem on {found[0]} @ {found[1]} baud.")
+            manager.connect(*found)
+        else:
+            print("[STARTUP] No port answered AT; choose one in the web UI.")
     elif args.port:
         print(f"[STARTUP] Connecting to serial port {args.port} @ {args.baud} baud...")
         manager.connect(args.port, args.baud)
