@@ -44,7 +44,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const voltageVal = document.getElementById("voltageVal");
     const firmwareVal = document.getElementById("firmwareVal");
     const tempVal = document.getElementById("tempVal");
-    const mapLink = document.getElementById("mapLink");
+    const tempItem = document.getElementById("tempItem");
 
     // Serving Cell
     const ratBadge = document.getElementById("ratBadge");
@@ -235,7 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td><span class="badge badge-${(row.quality_label||'good').toLowerCase()}">${row.quality_label}</span></td>
                         <td>${row.operator || '-'}</td>
                         <td><code>${row.cell_id}</code></td>
-                        <td>${row.temperature}°C</td>
+                        <td>${row.temperature === null || row.temperature === undefined ? "--" : row.temperature + "°C"}</td>
                         <td>${row.voltage} mV</td>
                     </tr>
                 `).join("");
@@ -582,16 +582,10 @@ document.addEventListener("DOMContentLoaded", () => {
         ipVal.textContent = isCommunicated ? (sys.ip_address || "Not Connected") : "--";
         voltageVal.textContent = isCommunicated && sys.voltage ? `${sys.voltage} mV (${(sys.voltage / 1000).toFixed(2)} V)` : "--";
         firmwareVal.textContent = isCommunicated ? (sys.firmware || "N/A") : "--";
-        tempVal.textContent = isCommunicated && typeof sys.temperature === "number" ? `${sys.temperature} \u00b0C` : "--";
-
-        const loc = state.location || {};
-        if (isCommunicated && loc.lat && loc.lon) {
-            mapLink.href = `https://www.openstreetmap.org/#map=13/${loc.lat}/${loc.lon}`;
-            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> ${escapeHtml(String(loc.lat))}, ${escapeHtml(String(loc.lon))}`;
-        } else {
-            mapLink.href = "#";
-            mapLink.innerHTML = `<i class="fa-solid fa-map-pin"></i> Awaiting Cell Geolocation...`;
-        }
+        // Temperature is only shown when the module reports it.
+        const hasTemp = isCommunicated && typeof sys.temperature === "number";
+        tempItem.classList.toggle("hidden", !hasTemp);
+        tempVal.textContent = hasTemp ? `${sys.temperature} \u00b0C` : "--";
 
         // Serving Cell Details
         const sc = state.serving_cell || {};
