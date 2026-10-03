@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from pydantic import BaseModel
 import uvicorn
 
+import instance
 from serial_manager import SerialManager
 from pylogkit import setup_logging
 
@@ -186,6 +187,7 @@ def clear_history():
 def shutdown_server():
     print("\n[SYSTEM] Exit requested via Web UI. Shutting down cleanly...")
     manager.disconnect()
+    instance.remove_pid_file()
 
     def delayed_exit():
         time.sleep(0.5)
@@ -236,6 +238,7 @@ def setup_signal_handlers():
             manager.disconnect()
         except Exception:
             pass
+        instance.remove_pid_file()
         os._exit(0)
 
     try:
@@ -246,6 +249,7 @@ def setup_signal_handlers():
 
 if __name__ == "__main__":
     setup_signal_handlers()
+    instance.write_pid_file()
 
     if args.demo:
         print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
