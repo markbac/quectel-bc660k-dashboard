@@ -2,7 +2,6 @@ import logging
 import time
 import re
 import os
-import sys
 import threading
 import random
 from logging.handlers import RotatingFileHandler
@@ -613,9 +612,9 @@ class SerialManager:
         if direction == "ERROR":
             self.py_logger.error(ascii_text)
         elif direction == "TX":
-            self.py_logger.debug(f"TX> {ascii_text}")
+            self.py_logger.debug(ascii_text)  # callers already add the "TX> " prefix
         elif direction == "RX":
-            self.py_logger.debug(f"RX< {ascii_text}")
+            self.py_logger.debug(ascii_text)  # ... and the "RX< " prefix
         else:
             self.py_logger.info(ascii_text)
 

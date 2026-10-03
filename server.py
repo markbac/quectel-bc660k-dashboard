@@ -20,7 +20,6 @@ import instance
 from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
-from pylogkit import setup_logging
 from modem_replay import TranscriptModem
 from port_detect import detect_at_port
 from transcript import TranscriptRecorder, load_transcript
@@ -341,14 +340,14 @@ def main() -> None:
 
     port_num = args.http_port
     url = cli.server_url(args.host, port_num)
-    print(f"\n=======================================================")
+    print("\n=======================================================")
     print(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
     print(f"Baud Rate: {args.baud}")
     print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
     print(f"Database: {manager.db.db_path}")
     print(f"Py-LogKit File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
-    print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
-    print(f"=======================================================\n")
+    print("Press Ctrl+C in terminal or click Exit in Web UI to stop")
+    print("=======================================================\n")
 
     if not args.no_browser:
         try:

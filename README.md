@@ -2,7 +2,7 @@
 
 A modern, real-time web dashboard for inspecting signal strength, serving cell metrics, neighboring cell towers, and available network operators on **Quectel BC660K-GL LTE Cat NB2 (NB-IoT)** breakout boards.
 
-![Dashboard Preview](https://img.shields.io/badge/Quectel-BC660K--GL-blue) ![License](https://img.shields.io/badge/License-MIT-green) ![Py--LogKit](https://img.shields.io/badge/Py--LogKit-Integrated-purple) ![FastAPI](https://img.shields.io/badge/FastAPI-0.136-009688)
+![Dashboard Preview](https://img.shields.io/badge/Quectel-BC660K--GL-blue) ![License](https://img.shields.io/badge/License-MIT-green) ![Py--LogKit](https://img.shields.io/badge/Py--LogKit-Integrated-purple) ![FastAPI](https://img.shields.io/badge/FastAPI-%E2%89%A50.100-009688)
 
 ---
 
@@ -18,7 +18,7 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 - 🪶 **Light Polling**: each cycle sends only `AT+CSQ` and `AT+QENG`; operator, registration, voltage and temperature are polled on slower timers, and `+CEREG` updates arrive as URCs.
 - 🧹 **Fresh History Reset**: Instantly clear historical database records to start telemetry logging fresh.
 - 💻 **Built-in AT Command Console**: Execute manual AT commands with quick-action presets (`AT`, `ATI`, `AT+CSQ`, `AT+QCCID`, `AT+CIMI`, `AT+CBC`, `AT+QENG`, `AT+COPS?`, `AT+CEREG?`).
-- 🛑 **Graceful Shutdown & Signal Handling**: Supports web Exit button shutdown and terminal `Ctrl+C` / `Ctrl+X` clean resource releases.
+- 🛑 **Graceful Shutdown & Signal Handling**: Supports web Exit button shutdown and terminal `Ctrl+C` (`SIGINT`) and `SIGTERM` clean resource releases.
 
 ---
 
@@ -39,6 +39,8 @@ git clone https://github.com/markbac/quectel-bc660k-dashboard.git
 cd quectel-bc660k-dashboard
 pip install -r requirements.txt
 ```
+
+On Python 3.13 the test suite and the checks below run in GitHub Actions (`.github/workflows/ci.yml`).
 
 ### 2. Running the Server
 Launch the server. It does not connect to a port unless asked to:
@@ -90,6 +92,18 @@ These are requests. The network decides the values actually granted, so the pane
 
 ---
 
+## 🧰 Bench Scripts
+
+`tools/` holds small scripts for checking a board without the dashboard. They take the port as an argument:
+
+```bash
+python tools/probe_ports.py                       # list ports and probe each with AT
+python tools/send_at_twice.py COM3 COM4           # raw reply to AT on the given ports
+python tools/validate_board.py /dev/ttyUSB0       # run a fixed set of identification commands
+```
+
+---
+
 ## 🎞️ Recording and Replaying a Modem
 
 `python server.py --port auto --record session.jsonl` appends every answered AT exchange to a JSON Lines file. ICCIDs, IMSIs and IMEIs are redacted as they are written (cell identities and locations are not, so review a recording before sharing it). `python server.py --replay session.jsonl` plays it back through a pseudo-terminal, so the real serial code path runs without hardware (POSIX only). The nth request for a command gets its nth recorded reply and the last reply repeats. `tests/transcripts/synthetic_attached.jsonl` is a hand-written transcript used by the tests; it is not a hardware capture.
@@ -100,6 +114,7 @@ These are requests. The network decides the values actually granted, so the pane
 
 ```bash
 pip install -r requirements-dev.txt
+python -m pyflakes .  # unused imports and similar
 python -m pytest      # back end
 npm install && npm test   # front end (jsdom)
 ```

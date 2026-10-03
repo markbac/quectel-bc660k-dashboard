@@ -1,7 +1,6 @@
 """Tests for the modem state machine (#32)."""
 import pytest
 
-import serial_manager
 from serial_manager import (
     MODEM_AWAKE, MODEM_DEEP_SLEEP, MODEM_DISCONNECTED, MODEM_PROBING, MODEM_PSM, MODEM_UNRESPONSIVE,
 )

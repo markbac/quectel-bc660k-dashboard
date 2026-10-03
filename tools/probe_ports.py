@@ -1,7 +1,12 @@
+"""List the serial ports and probe each with AT at several baud rates.
+
+Usage: python tools/probe_ports.py
+"""
+import sys
+import time
+
 import serial
 import serial.tools.list_ports
-import time
-import sys
 
 print("==================================================")
 print("Quectel BC660K Direct Serial Port Probe Tool")
