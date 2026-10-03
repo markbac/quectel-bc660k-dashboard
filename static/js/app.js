@@ -501,12 +501,15 @@ document.addEventListener("DOMContentLoaded", () => {
             if (isDemo) {
                 connectionStatus.className = "status-badge demo";
                 statusText.textContent = "Demo Mode (--demo)";
+            } else if (isCommunicated && state.modem_responding === false) {
+                connectionStatus.className = "status-badge connecting";
+                statusText.textContent = `No response (${state.port}) - press RESET on the board`;
             } else if (isCommunicated) {
                 connectionStatus.className = "status-badge connected";
                 statusText.textContent = `Connected (${state.port})`;
             } else {
                 connectionStatus.className = "status-badge connecting";
-                statusText.textContent = `Connecting (${state.port})...`;
+                statusText.textContent = `Connecting (${state.port}) - press RESET on the board if just powered`;
             }
             connectBtn.innerHTML = `<i class="fa-solid fa-unlink"></i> Disconnect`;
             connectBtn.dataset.state = "connected";

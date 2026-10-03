@@ -72,6 +72,7 @@ def test_retention_disabled_by_default(manager, monkeypatch):
 def test_a_console_command_does_not_wait_for_the_whole_poll_cycle(manager):
     """Regression test for #19: the lock used to be held for the full cycle."""
     manager.running = True
+    manager._hardware_info_loaded = True
     manager.ser = FakeSerial({}, write_delay=0.15)
     poller = threading.Thread(target=manager._poll_once, daemon=True)
     poller.start()

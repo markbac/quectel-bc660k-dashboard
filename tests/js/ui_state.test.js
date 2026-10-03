@@ -71,3 +71,13 @@ test("neighbours without RSRP render placeholders instead of NaN", () => {
     const row = h.document.getElementById("neighbourTableBody").textContent;
     assert.doesNotMatch(row, /NaN|null/);
 });
+
+test("the status badge tells the user to press RESET when the modem is silent", () => {
+    const h = loadDashboard();
+    h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: false });
+    assert.match(h.text("statusText"), /press RESET on the board if just powered/);
+    h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: true, modem_responding: false });
+    assert.match(h.text("statusText"), /No response \(COM3\) - press RESET/);
+    h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: true, modem_responding: true });
+    assert.strictEqual(h.text("statusText"), "Connected (COM3)");
+});
