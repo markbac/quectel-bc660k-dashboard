@@ -25,8 +25,11 @@ param(
     [switch]$WithMqtt
 )
 
-$ErrorActionPreference = "Stop"
-Set-Location -LiteralPath $PSScriptRoot
+# "Continue", not "Stop": Windows PowerShell turns anything a native command
+# writes to stderr into a terminating error when it is redirected, which would
+# stop the script on the import check below. Exit codes are checked explicitly.
+$ErrorActionPreference = "Continue"
+Set-Location -LiteralPath $PSScriptRoot -ErrorAction Stop
 
 function Fail([string]$Message) {
     Write-Host "ERROR: $Message" -ForegroundColor Red
@@ -39,8 +42,8 @@ function Find-Python {
         $exe = $candidate[0]
         if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
         $extra = @($candidate | Select-Object -Skip 1)
-        $ok = & $exe @extra -c "import sys; print(sys.version_info >= (3, 10))" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $ok -eq "True") { return ,(@($exe) + $extra) }
+        $ok = & $exe @extra -c "import sys; print(sys.version_info >= (3, 10))" 2>&1
+        if ($LASTEXITCODE -eq 0 -and ("$ok".Trim() -eq "True")) { return ,(@($exe) + $extra) }
     }
     return $null
 }
@@ -61,7 +64,7 @@ if (Test-Path -LiteralPath $stale -PathType Container) {
     $code = Get-ChildItem -LiteralPath $stale -Recurse -Filter *.py -ErrorAction SilentlyContinue
     if (-not $code) {
         Write-Host "Removing the stale folder $stale (no code in it)."
-        Remove-Item -LiteralPath $stale -Recurse -Force
+        Remove-Item -LiteralPath $stale -Recurse -Force -ErrorAction Stop
     }
 }
 
@@ -77,13 +80,13 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 
 # 4. Packages: install only when an import fails.
 $check = "import fastapi, uvicorn, serial, websockets, pydantic, pylogkit; pylogkit.setup_logging"
-& $venvPython -c $check 2>$null
+$null = & $venvPython -c $check 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing requirements.txt ..."
     & $venvPython -m pip install --upgrade pip
     & $venvPython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
     if ($LASTEXITCODE -ne 0) { Fail "pip could not install the requirements. Check your network connection." }
-    & $venvPython -c $check
+    $null = & $venvPython -c $check 2>&1
     if ($LASTEXITCODE -ne 0) { Fail "The packages are installed but pylogkit still cannot be imported." }
 }
 if ($WithMqtt) {

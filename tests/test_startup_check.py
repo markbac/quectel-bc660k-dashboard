@@ -40,3 +40,10 @@ def test_launcher_script_covers_the_setup_steps():
     script = (ROOT / "run_dashboard.ps1").read_text(encoding="utf-8")
     for needle in ("3, 10", "git", "-m venv", "requirements.txt", "server.py", "pylogkit"):
         assert needle in script, needle
+
+
+def test_launcher_does_not_stop_on_native_stderr():
+    """Windows PowerShell treats redirected native stderr as an error under Stop (#109)."""
+    script = (ROOT / "run_dashboard.ps1").read_text(encoding="utf-8")
+    assert '$ErrorActionPreference = "Stop"' not in script
+    assert "2>$null" not in script
