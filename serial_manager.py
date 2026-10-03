@@ -14,8 +14,13 @@ from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
 from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
 from plmn import operator_name
-from pylogkit import setup_logging
+from startup_check import pylogkit_help
 from transcript import TranscriptRecorder
+
+try:
+    from pylogkit import setup_logging
+except ImportError as exc:  # missing, or hidden by a stale folder
+    raise SystemExit(pylogkit_help(exc)) from exc
 
 __version__ = "2.0.0"
 LOGGER_NAME = "QuectelManager"

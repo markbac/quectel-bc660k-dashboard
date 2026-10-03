@@ -16,6 +16,7 @@ A large reliability, security and feature release. Several changes are not backw
 
 ### Fixed
 
+- Starting without py-logkit installed, or with a leftover `pylogkit` folder in the way, now stops with a clear message instead of an `ImportError`. `run_dashboard.ps1` sets up a virtual environment, installs the requirements and starts the server on Windows (#107).
 - `--port auto` now finds a module in deep sleep: it sends `AT` up to three times, waiting 2.5 s after each, because a sleeping BC660K answers the first one with a blank line (#94).
 - A carrier scan that gets no answer from the module now shows why in the Available Carrier Networks panel instead of "Found 0 networks", keeps the previous result, and the panel shows elapsed time and says a scan can take up to 3 minutes (#93).
 - Dashboard layout: a missing `</section>` made every row after System Diagnostics nest inside the hardware row, which stretched cards and left empty space. Rows now lay out as intended, the PSM and ping cards are styled and side by side, the log console is taller and resizable, CID 0 is no longer shown as 1, the console no longer shows `[TX] TX>`, and old bare PLMN codes in the history table are labelled like new ones (#95).

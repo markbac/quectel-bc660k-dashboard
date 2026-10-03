@@ -44,6 +44,16 @@ pip install -r requirements.txt
 
 This needs Python 3.10 or later and `git`, because [py-logkit](https://github.com/markbac/py-logkit) is installed from GitHub.
 
+On Windows, `run_dashboard.ps1` does the whole set-up and then starts the server. It checks Python and git, removes a leftover empty `pylogkit` folder from the old bundled copy, creates `.venv`, installs `requirements.txt` when a package is missing and runs `server.py` with the arguments you give it:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run_dashboard.ps1 --port auto --record session.jsonl
+.\run_dashboard.ps1 -SetupOnly      # prepare the environment and stop
+.\run_dashboard.ps1 -WithMqtt --port COM3   # also install paho-mqtt
+```
+
+If py-logkit is missing or hidden, the dashboard now stops with a message saying what to do instead of a traceback.
+
 On Python 3.13 the test suite and the checks below run in GitHub Actions (`.github/workflows/ci.yml`).
 
 ### 2. Running the Server
