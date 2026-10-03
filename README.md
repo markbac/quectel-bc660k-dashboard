@@ -13,7 +13,7 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 - 🔒 **Serial Port Lock Warning & Auto-Reclaim**: Detects if a COM port is locked by another process, emits warnings, and reclaims handles automatically.
 - 📡 **Automatic Initial & Scheduled Network Scan (`AT+COPS=?`)**: Runs a full cellular spectrum scan by default on connection and periodically in an asynchronous non-blocking thread.
 - ⚙️ **Configurable Polling Frequencies**: Web UI controls for Signal Poll Interval (`1s`, `2s`, `3s`, `5s`, `10s`) and Spectrum Scan Frequency (`Off`, `30s`, `60s`, `120s`, `300s`).
-- 🗄️ **SQLite Data Logging & CSV Export**: Automatic SQLite telemetry persistence (`telemetry.db`), historical analytics summary, and one-click CSV export.
+- 🗄️ **SQLite Data Logging & CSV Export**: Automatic SQLite telemetry persistence (created on first start in your per-user data directory, never committed), historical analytics summary, and one-click CSV export.
 - 🧹 **Fresh History Reset**: Instantly clear historical database records to start telemetry logging fresh.
 - 💻 **Built-in AT Command Console**: Execute manual AT commands with quick-action presets (`AT`, `ATI`, `AT+CSQ`, `AT+QCCID`, `AT+CIMI`, `AT+CBC`, `AT+QENG`, `AT+COPS?`, `AT+CEREG?`).
 - 🛑 **Graceful Shutdown & Signal Handling**: Supports web Exit button shutdown and terminal `Ctrl+C` / `Ctrl+X` clean resource releases.
@@ -44,6 +44,12 @@ Launch the server (connects to `COM3` @ `115200` baud by default):
 python server.py --port COM3 --baud 115200
 ```
 Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
+
+---
+
+## 🗄️ Database Location
+
+The database is created on first start if it does not exist. By default it lives in your per-user data directory (`%LOCALAPPDATA%\\quectel-bc660k-dashboard` on Windows, `~/Library/Application Support/quectel-bc660k-dashboard` on macOS, `~/.local/share/quectel-bc660k-dashboard` on Linux). Override it with `--db-path FILE` or the `QUECTEL_DASHBOARD_DB` environment variable. Database files are git-ignored.
 
 ---
 

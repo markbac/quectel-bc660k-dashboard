@@ -89,7 +89,8 @@ class SerialManager:
             file_logging_enabled: Write the serial log to disk.
             telemetry_interval: Seconds between poll cycles.
             cops_scan_interval: Seconds between operator scans (0 disables).
-            db_path: SQLite file to use. Defaults to ``telemetry.db`` beside this module.
+            db_path: SQLite file to use. Defaults to the per-user data directory
+                (see ``db_manager.default_db_path``).
             log_file_path: Log file to use. Defaults to ``dashboard_serial.log``.
         """
         self.ser: Optional[serial.Serial] = None
