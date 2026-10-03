@@ -74,6 +74,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const neighbourCount = document.getElementById("neighbourCount");
     const scanBtn = document.getElementById("scanBtn");
     const scanLoading = document.getElementById("scanLoading");
+    const scanElapsed = document.getElementById("scanElapsed");
+    const scanError = document.getElementById("scanError");
     const networksTableBody = document.getElementById("networksTableBody");
 
     // Terminal & Disk Log Toggle
@@ -833,6 +835,28 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Update Dashboard UI with state object
+    // Elapsed time shown while a carrier scan runs; a scan can take minutes.
+    let scanClock = null;
+    let scanStartedAt = 0;
+
+    function startScanClock() {
+        if (scanClock) return;
+        scanStartedAt = Date.now();
+        const tick = () => {
+            const secs = Math.floor((Date.now() - scanStartedAt) / 1000);
+            scanElapsed.textContent = `(${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")} elapsed)`;
+        };
+        tick();
+        scanClock = setInterval(tick, 1000);
+    }
+
+    function stopScanClock() {
+        if (!scanClock) return;
+        clearInterval(scanClock);
+        scanClock = null;
+        scanElapsed.textContent = "";
+    }
+
     function updateUIState(state) {
         const isDemo = state.mode === "DEMO";
         const isCommunicated = isDemo || !!state.hardware_communicated;
@@ -1003,10 +1027,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (state.is_scanning) {
             scanLoading.classList.remove("hidden");
             scanBtn.disabled = true;
+            startScanClock();
         } else {
             scanLoading.classList.add("hidden");
             scanBtn.disabled = false;
+            stopScanClock();
         }
+        scanError.textContent = state.scan_error || "";
+        scanError.classList.toggle("hidden", !state.scan_error);
 
         if (isCommunicated && state.networks_scan && state.networks_scan.length > 0) {
             networksTableBody.innerHTML = state.networks_scan.map(net => {

@@ -117,3 +117,25 @@ test("requested and granted PSM values are shown side by side, with a mismatch f
     h.push({ ...fullState, psm_info: { enabled: true, status: "PSM Enabled", requested_text: "a", granted_text: "a", mismatch: false } });
     assert.strictEqual(h.text("psmGrantedVal"), "a");
 });
+
+test("scan panel no longer promises 30 seconds and shows elapsed time (#93)", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, is_scanning: true });
+    const loading = h.document.getElementById("scanLoading");
+    assert.ok(!loading.classList.contains("hidden"));
+    assert.doesNotMatch(loading.textContent, /30\s?s/);
+    assert.match(loading.textContent, /3 minutes/);
+    assert.match(h.text("scanElapsed"), /0:00 elapsed/);
+    h.push({ ...fullState, is_scanning: false });
+    assert.strictEqual(h.text("scanElapsed"), "");
+});
+
+test("a failed scan shows its reason and clears on the next state", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, scan_error: "The module gave no answer to AT+COPS=?" });
+    const box = h.document.getElementById("scanError");
+    assert.ok(!box.classList.contains("hidden"));
+    assert.match(box.textContent, /no answer/);
+    h.push({ ...fullState, scan_error: null });
+    assert.ok(box.classList.contains("hidden"));
+});

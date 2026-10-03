@@ -39,3 +39,30 @@ def test_other_silence_still_marks_the_modem_unresponsive(manager):
     manager._on_channel_timeout()
     assert manager.state["modem_state"] == "unresponsive"
     assert manager._wake_hint_shown is True
+
+
+def test_failed_scan_keeps_the_previous_result_and_says_why(manager, monkeypatch):
+    """No reply is an error to show, not 'Found 0 networks' replacing a good list (#93)."""
+    monkeypatch.setattr(at_channel, "AT_TIMEOUTS", (("AT+COPS=?", 0.3),))
+    previous = [{"status": "Current", "long_name": "Net", "short_name": "N", "plmn": "00101", "act": "NB-IoT"}]
+    manager.state["networks_scan"] = previous
+    manager.state["modem_state"] = "awake"
+    manager.ser = FakeSerial({"AT+COPS=?": ""})
+    manager.running = True
+
+    manager.trigger_async_cops_scan()
+    assert wait_until(lambda: not manager.state["is_scanning"])
+
+    assert manager.state["networks_scan"] == previous
+    assert "no answer" in manager.state["scan_error"].lower()
+    texts = [entry["text"] for entry in manager.state["logs"]]
+    assert not any("SCAN COMPLETE" in t for t in texts)
+
+
+def test_scan_error_clears_when_a_new_scan_starts(manager, monkeypatch):
+    manager.state["scan_error"] = "old problem"
+    manager.is_demo = True
+    monkeypatch.setattr("serial_manager.time.sleep", lambda s: None)
+    manager.trigger_async_cops_scan()
+    assert wait_until(lambda: not manager.state["is_scanning"] and manager.state["networks_scan"])
+    assert manager.state["scan_error"] is None

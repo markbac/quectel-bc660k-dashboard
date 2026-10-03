@@ -220,6 +220,7 @@ class SerialManager:
             "neighbour_cells": [],
             "networks_scan": [],
             "is_scanning": False,
+            "scan_error": None,
             "psm_info": {
                 "enabled": False,
                 "t3412": "10100101",
@@ -894,6 +895,7 @@ class SerialManager:
         def _scan_worker():
             with self.scan_lock:
                 self.state["is_scanning"] = True
+                self.state["scan_error"] = None
                 self._notify("state", self.state)
                 self.log("[SCAN START] Scanning visible carrier spectrum (AT+COPS=?)...", "INFO")
 
@@ -915,12 +917,19 @@ class SerialManager:
                             self._scan_in_progress = False
                         scanned = self._parse_cops_scan(resp)
                     if resp == TIMEOUT_RESPONSE:
+                        seconds = timeout_for("AT+COPS=?", default=30.0)
+                        self.state["scan_error"] = (
+                            f"The module gave no answer to AT+COPS=? within {seconds:.0f} s. "
+                            "It may not support a manual network search while it is registered."
+                        )
                         self.log("[SCAN FAILED] No answer to AT+COPS=? within the scan time allowed.", "WARNING")
+                        scanned = None
 
-                self.state["networks_scan"] = scanned
+                if scanned is not None:
+                    self.state["networks_scan"] = scanned
+                    self.log(f"[SCAN COMPLETE] Spectrum search finished. Found {len(scanned)} networks.", "INFO")
                 self.state["is_scanning"] = False
                 self.last_cops_scan_time = time.time()
-                self.log(f"[SCAN COMPLETE] Spectrum search finished. Found {len(scanned)} networks.", "INFO")
                 self._notify("state", self.state)
 
         threading.Thread(target=_scan_worker, daemon=True).start()
