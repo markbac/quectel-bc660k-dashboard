@@ -1,13 +1,42 @@
-import sqlite3
+"""SQLite persistence for signal history."""
 import os
+import sqlite3
+import sys
 import time
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-DB_FILE = os.path.join(os.path.dirname(__file__), "telemetry.db")
+APP_DIR_NAME = "quectel-bc660k-dashboard"
+DB_FILE_NAME = "telemetry.db"
+DB_ENV_VAR = "QUECTEL_DASHBOARD_DB"
+
+
+def default_db_path() -> str:
+    """Return the default database location, outside the source tree.
+
+    ``$QUECTEL_DASHBOARD_DB`` wins if set. Otherwise the per-user data
+    directory is used (``%LOCALAPPDATA%`` on Windows, ``~/Library/Application
+    Support`` on macOS, ``$XDG_DATA_HOME`` or ``~/.local/share`` elsewhere).
+    """
+    override = os.environ.get(DB_ENV_VAR)
+    if override:
+        return override
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    elif sys.platform == "darwin":
+        base = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    return os.path.join(base, APP_DIR_NAME, DB_FILE_NAME)
+
 
 class DBManager:
-    def __init__(self, db_path: str = DB_FILE):
-        self.db_path = db_path
+    """Stores and queries signal history."""
+
+    def __init__(self, db_path: Optional[str] = None):
+        """Open the database, creating the file and schema if they are missing."""
+        self.db_path = db_path or default_db_path()
+        directory = os.path.dirname(os.path.abspath(self.db_path))
+        os.makedirs(directory, exist_ok=True)
         self._init_db()
 
     def _get_connection(self):

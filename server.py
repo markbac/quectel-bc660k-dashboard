@@ -25,11 +25,12 @@ parser = argparse.ArgumentParser(description="Quectel BC660K Signal & Network We
 parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode")
 parser.add_argument("--port", "-p", type=str, default="COM3", help="Initial COM port to connect on startup (default: COM3)")
 parser.add_argument("--baud", "-b", type=int, default=115200, help="Initial baud rate (default: 115200)")
+parser.add_argument("--db-path", type=str, default=None, help="SQLite database file (default: per-user data directory, or $QUECTEL_DASHBOARD_DB)")
 parser.add_argument("--no-file-log", action="store_true", help="Disable writing serial logs to disk file")
 args, _ = parser.parse_known_args()
 
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
-manager = SerialManager(file_logging_enabled=not args.no_file_log)
+manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path)
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -269,6 +270,7 @@ if __name__ == "__main__":
     print(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
     print(f"Baud Rate: {args.baud}")
     print(f"Mode: {'SIMULATED DEMO (--demo)' if args.demo else 'REAL HARDWARE'}")
+    print(f"Database: {manager.db.db_path}")
     print(f"Py-LogKit File Logging: {'ENABLED (dashboard_serial.log)' if not args.no_file_log else 'DISABLED'}")
     print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
     print(f"=======================================================\n")
