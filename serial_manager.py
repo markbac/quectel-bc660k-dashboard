@@ -1,3 +1,4 @@
+import logging
 import time
 import re
 import os
@@ -5,6 +6,7 @@ import sys
 import threading
 import random
 import subprocess
+from logging.handlers import RotatingFileHandler
 from typing import Dict, Any, List, Optional
 import serial
 import serial.tools.list_ports
@@ -199,11 +201,30 @@ class SerialManager:
             return f"{resp1}\n{resp2}"
 
     def set_file_logging(self, enabled: bool):
+        """Turn the on-disk serial log on or off at runtime."""
+        self._apply_file_logging(enabled)
         self.file_logging_enabled = enabled
         self.state["file_logging_enabled"] = enabled
         status_msg = "ENABLED" if enabled else "DISABLED"
         self.log(f"[CONFIG] Disk file logging {status_msg} ({self.log_file_path})", "INFO")
         self._notify("state", self.state)
+
+    def _apply_file_logging(self, enabled: bool):
+        """Attach or detach the rotating file handler on the logger."""
+        handlers = [h for h in self.py_logger.handlers if isinstance(h, RotatingFileHandler)]
+        if enabled and not handlers:
+            handler = RotatingFileHandler(
+                self.log_file_path, maxBytes=10 * 1024 * 1024, backupCount=3, encoding="utf-8"
+            )
+            handler.setLevel(logging.DEBUG)
+            handler.setFormatter(logging.Formatter(
+                "%(asctime)s [%(levelname)s] [%(name)s] - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            ))
+            self.py_logger.addHandler(handler)
+        elif not enabled:
+            for handler in handlers:
+                self.py_logger.removeHandler(handler)
+                handler.close()
 
     def set_psm_config(self, enabled: bool, t3412: str = "10100101", t3324: str = "00100100") -> str:
         """Configure PSM (Power Saving Mode) on Quectel BC660K."""

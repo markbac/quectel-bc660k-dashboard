@@ -12,8 +12,10 @@ from serial_manager import SerialManager  # noqa: E402
 @pytest.fixture
 def manager(tmp_path):
     """A SerialManager using a temporary database and no log file."""
-    return SerialManager(
+    mgr = SerialManager(
         file_logging_enabled=False,
         db_path=str(tmp_path / "telemetry.db"),
         log_file_path=str(tmp_path / "serial.log"),
     )
+    yield mgr
+    mgr.set_file_logging(False)  # release any open log file handle
