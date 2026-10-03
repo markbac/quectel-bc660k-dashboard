@@ -804,10 +804,7 @@ class SerialManager:
         steps = [
             ("AT+CSQ", self._parse_csq),
             ("AT+CESQ", self._parse_cesq),
-            ('AT+QENG="servingcell"', self._parse_qeng_serving),
-            ('AT+QENG="neighbourcell"', self._parse_qeng_neighbour),
-        ]
-        steps += [
+            ("AT+QENG=0", self._parse_qeng),
             ("AT+COPS?", self._parse_cops_query),
             ("AT+CEREG?", self._parse_cereg_query),
             ("AT+CBC", self._parse_cbc),
@@ -823,8 +820,6 @@ class SerialManager:
                 self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
                 return
             parser(resp)
-            if cmd == 'AT+QENG="neighbourcell"' and not self.state["neighbour_cells"]:
-                self._parse_nuestats_cell(self._send_at_cmd_raw('AT+NUESTATS="CELL"'))
 
     def _poll_loop(self):
         last_db_log = 0
@@ -911,6 +906,7 @@ class SerialManager:
             if rsrp not in (255, 99):
                 rsrp_dbm = -141 + rsrp
                 self.state["signal"]["rsrp"] = rsrp_dbm
+                self.state["signal"]["quality_label"] = self._quality_label(rsrp_dbm)
             if rsrq not in (255, 99):
                 rsrq_db = -20 + (rsrq * 0.5)
                 self.state["signal"]["rsrq"] = round(rsrq_db, 1)
@@ -978,78 +974,99 @@ class SerialManager:
             att_code = int(match.group(1))
             self.state["apn_info"]["attached"] = (att_code == 1)
 
-    def _parse_qeng_serving(self, resp: str):
-        match = re.search(r'\+QENG:\s*"servingcell","([^"]+)","([^"]+)","([^"]+)",(\d+),(\d+),([0-9A-Fa-f]+),(\d+),(\d+),(\d+),.*?([0-9A-Fa-f]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
-        if match:
-            cell_state, rat, duplex, mcc, mnc, cell_id_hex, pci, earfcn, band, tac_hex, rsrp, rsrq, rssi, sinr = match.groups()
-            try:
-                cell_id_dec = int(cell_id_hex, 16)
-            except ValueError:
-                cell_id_dec = 0
+    @staticmethod
+    def _quality_label(rsrp: int) -> str:
+        """Map an RSRP value in dBm to a quality label."""
+        if rsrp > -80:
+            return "Excellent"
+        if rsrp > -95:
+            return "Good"
+        if rsrp > -110:
+            return "Fair"
+        return "Poor"
 
-            try:
-                tac_dec = int(tac_hex, 16)
-            except ValueError:
-                tac_dec = 0
+    @staticmethod
+    def _optional_int(text: str) -> Optional[int]:
+        """Parse an optional integer field; empty or non-numeric gives None."""
+        try:
+            return int(text)
+        except ValueError:
+            return None
 
-            rsrp_val = int(rsrp)
-            rsrq_val = int(rsrq)
-            rssi_val = int(rssi)
-            sinr_val = int(sinr)
+    @staticmethod
+    def _hex_to_int(text: str) -> Optional[int]:
+        try:
+            return int(text, 16)
+        except ValueError:
+            return None
 
-            label = "Excellent" if rsrp_val > -80 else ("Good" if rsrp_val > -95 else ("Fair" if rsrp_val > -110 else "Poor"))
+    def _parse_qeng(self, resp: str):
+        """Parse ``AT+QENG=0`` (serving cell and neighbour cells).
 
-            self.state["signal"]["rsrp"] = rsrp_val
-            self.state["signal"]["rsrq"] = rsrq_val
-            self.state["signal"]["rssi"] = rssi_val
-            self.state["signal"]["sinr"] = sinr_val
-            self.state["signal"]["quality_label"] = label
+        Documented format (BC660K-GL AT Commands Manual V1.3)::
 
-            self.state["serving_cell"].update({
-                "rat": rat,
-                "state": cell_state,
-                "mcc": mcc,
-                "mnc": mnc,
-                "cell_id": cell_id_hex,
-                "cell_id_dec": cell_id_dec,
-                "pci": int(pci),
-                "earfcn": int(earfcn),
-                "band": band,
-                "tac": tac_hex,
-                "tac_dec": tac_dec
-            })
+            +QENG: 0,<earfcn>,<earfcn_offset>,<pci>,<cell_id>,[<rsrp>],[<rsrq>],
+                   [<rssi>],[<sinr>],<band>,<tac>,[<ecl>],[<tx_pwr>],<operation_mode>
+            +QENG: 1,<earfcn>,<pci>,<rsrp>,<rsrq>          (one per neighbour)
 
-    def _parse_qeng_neighbour(self, resp: str):
-        matches = re.findall(r'\+QENG:\s*"neighbourcell",(?:"neighbour",)?"?([^",\s]+)"?,?(\d+),(\d+),(-?\d+),(-?\d+),(-?\d+)', resp)
-        if matches:
-            neighbours = []
-            for m in matches:
-                rat, earfcn, pci, rsrp, rsrq, rssi = m
-                neighbours.append({
-                    "rat": rat,
-                    "earfcn": int(earfcn),
-                    "pci": int(pci),
-                    "rsrp": int(rsrp),
-                    "rsrq": int(rsrq),
-                    "rssi": int(rssi)
-                })
+        Optional fields may be empty. Neighbours are replaced on every call so
+        a cell that disappears is removed.
+        """
+        neighbours = []
+        for line in resp.splitlines():
+            line = line.strip()
+            if not line.startswith("+QENG:"):
+                continue
+            fields = [f.strip().strip('"') for f in line[len("+QENG:"):].split(",")]
+            if fields[0] == "0" and len(fields) >= 11:
+                self._apply_serving_cell(fields)
+            elif fields[0] == "1" and len(fields) >= 5:
+                earfcn, pci, rsrp, rsrq = (self._optional_int(f) for f in fields[1:5])
+                if earfcn is not None and pci is not None:
+                    neighbours.append({
+                        "rat": "NB-IoT",
+                        "earfcn": earfcn,
+                        "pci": pci,
+                        "rsrp": rsrp,
+                        "rsrq": rsrq,
+                    })
+        if "+QENG:" in resp:
             self.state["neighbour_cells"] = neighbours
 
-    def _parse_nuestats_cell(self, resp: str):
-        matches = re.findall(r'\+NUESTATS:\s*"CELL",\s*(\d+),\s*(\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)', resp)
-        if matches:
-            cells = []
-            for m in matches:
-                earfcn, pci, rsrp, rsrq, snr = m
-                cells.append({
-                    "rat": "NB-IoT",
-                    "earfcn": int(earfcn),
-                    "pci": int(pci),
-                    "rsrp": int(rsrp),
-                    "rsrq": int(rsrq),
-                    "sinr": int(snr)
-                })
-            self.state["neighbour_cells"] = cells
+    def _apply_serving_cell(self, fields: List[str]):
+        """Store the serving-cell fields of one ``+QENG: 0,...`` line."""
+        earfcn = self._optional_int(fields[1])
+        pci = self._optional_int(fields[3])
+        cell_id = fields[4]
+        rsrp, rsrq, rssi, sinr = (self._optional_int(f) for f in fields[5:9])
+        band = fields[9]
+        tac = fields[10]
+
+        signal = self.state["signal"]
+        if rsrp is not None:
+            signal["rsrp"] = rsrp
+            signal["quality_label"] = self._quality_label(rsrp)
+        if rsrq is not None:
+            signal["rsrq"] = rsrq
+        if rssi is not None:
+            signal["rssi"] = rssi
+        if sinr is not None:
+            signal["sinr"] = sinr
+
+        cell_dec = self._hex_to_int(cell_id)
+        tac_dec = self._hex_to_int(tac)
+        self.state["serving_cell"].update({
+            "rat": "NB-IoT",
+            "cell_id": cell_id or "--",
+            "cell_id_dec": cell_dec if cell_dec is not None else "--",
+            "pci": pci if pci is not None else "--",
+            "earfcn": earfcn if earfcn is not None else "--",
+            "band": band or "--",
+            "tac": tac or "--",
+            "tac_dec": tac_dec if tac_dec is not None else "--",
+        })
+        if len(fields) >= 14:
+            self.state["serving_cell"]["operation_mode"] = fields[13]
 
     def _parse_cops_query(self, resp: str):
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)
@@ -1140,10 +1157,14 @@ class SerialManager:
         elif c == "AT+CGATT?":
             att = 1 if self.state["apn_info"]["attached"] else 0
             return f'+CGATT: {att}\r\n\r\nOK\r\n'
-        elif "AT+QENG=\"SERVINGCELL\"" in c:
+        elif c == "AT+QENG=0":
             sc = self.state["serving_cell"]
             sig = self.state["signal"]
-            return f'+QENG: "servingcell","{sc["state"]}","{sc["rat"]}","FDD",{sc["mcc"]},{sc["mnc"]},{sc["cell_id"]},{sc["pci"]},{sc["earfcn"]},{sc["band"]},0,0,{sc["tac"]},{sig["rsrp"]},{sig["rsrq"]},{sig["rssi"]},{sig["sinr"]}\r\n\r\nOK\r\n'
+            return (
+                f'+QENG: 0,{sc["earfcn"]},0,{sc["pci"]},"{sc["cell_id"]}",{sig["rsrp"]},{sig["rsrq"]},'
+                f'{sig["rssi"]},{sig["sinr"]},{sc["band"]},"{sc["tac"]}",0,23,0\r\n'
+                '+QENG: 1,6300,321,-100,-12\r\n\r\nOK\r\n'
+            )
         elif c == "AT+COPS?":
             sc = self.state["serving_cell"]
             return f'+COPS: 0,0,"{sc["operator"]}",9\r\n\r\nOK\r\n'
