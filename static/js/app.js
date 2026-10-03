@@ -227,16 +227,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 const rev = [...history].reverse();
                 historyTableBody.innerHTML = rev.slice(0, 50).map(row => `
                     <tr>
-                        <td><small>${row.timestamp}</small></td>
-                        <td><strong>${row.rsrp} dBm</strong></td>
-                        <td>${row.rsrq} dB</td>
-                        <td>${row.rssi} dBm</td>
-                        <td>${row.sinr} dB</td>
-                        <td><span class="badge badge-${(row.quality_label||'good').toLowerCase()}">${row.quality_label}</span></td>
-                        <td>${row.operator || '-'}</td>
-                        <td><code>${row.cell_id}</code></td>
-                        <td>${row.temperature === null || row.temperature === undefined ? "--" : row.temperature + "°C"}</td>
-                        <td>${row.voltage} mV</td>
+                        <td><small>${escapeHtml(row.timestamp)}</small></td>
+                        <td><strong>${escapeHtml(row.rsrp)} dBm</strong></td>
+                        <td>${escapeHtml(row.rsrq)} dB</td>
+                        <td>${escapeHtml(row.rssi)} dBm</td>
+                        <td>${escapeHtml(row.sinr)} dB</td>
+                        <td><span class="badge ${qualityBadgeClass(row.quality_label)}">${escapeHtml(row.quality_label)}</span></td>
+                        <td>${escapeHtml(row.operator || '-')}</td>
+                        <td><code>${escapeHtml(row.cell_id)}</code></td>
+                        <td>${row.temperature === null || row.temperature === undefined ? "--" : escapeHtml(row.temperature) + "°C"}</td>
+                        <td>${escapeHtml(row.voltage)} mV</td>
                     </tr>
                 `).join("");
             }
@@ -555,7 +555,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (hasSignalData && sig.quality_label) {
             rsrpQuality.textContent = sig.quality_label;
-            rsrpQuality.className = `badge badge-${sig.quality_label.toLowerCase()}`;
+            rsrpQuality.className = `badge ${qualityBadgeClass(sig.quality_label)}`;
         } else {
             rsrpQuality.textContent = isCommunicated ? "No Signal" : "Awaiting Modem Communication...";
             rsrpQuality.className = "badge badge-secondary";
@@ -618,8 +618,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 const rsrqText = typeof n.rsrq === "number" ? `${n.rsrq} dB` : "--";
                 return `
                     <tr>
-                        <td><strong>${n.pci}</strong></td>
-                        <td>${n.earfcn}</td>
+                        <td><strong>${escapeHtml(n.pci)}</strong></td>
+                        <td>${escapeHtml(n.earfcn)}</td>
                         <td>${rsrpText}</td>
                         <td>${rsrqText}</td>
                         <td ${relClass}>${relLabel}</td>
@@ -646,10 +646,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 return `
                     <tr>
-                        <td><span class="badge ${badgeClass}">${net.status}</span></td>
-                        <td><strong>${net.long_name}</strong> (${net.short_name})</td>
-                        <td>${net.plmn}</td>
-                        <td>${net.act}</td>
+                        <td><span class="badge ${badgeClass}">${escapeHtml(net.status)}</span></td>
+                        <td><strong>${escapeHtml(net.long_name)}</strong> (${escapeHtml(net.short_name)})</td>
+                        <td>${escapeHtml(net.plmn)}</td>
+                        <td>${escapeHtml(net.act)}</td>
                     </tr>
                 `;
             }).join("");
@@ -689,14 +689,26 @@ document.addEventListener("DOMContentLoaded", () => {
     // Console Logging
     function appendLog(entry) {
         const div = document.createElement("div");
-        div.className = `log-line log-${entry.direction.toLowerCase()}`;
-        div.innerHTML = `<span class="timestamp">[${entry.timestamp}]</span><span class="dir">[${entry.direction}]</span> ${escapeHtml(entry.text)}`;
+        div.className = `log-line log-${String(entry.direction).toLowerCase().replace(/[^a-z]/g, "")}`;
+        div.innerHTML = `<span class="timestamp">[${escapeHtml(entry.timestamp)}]</span><span class="dir">[${escapeHtml(entry.direction)}]</span> ${escapeHtml(entry.text)}`;
         logConsole.appendChild(div);
         logConsole.scrollTop = logConsole.scrollHeight;
     }
 
-    function escapeHtml(text) {
-        return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    // Escape a value for use in HTML text or a quoted attribute.
+    function escapeHtml(value) {
+        return String(value === null || value === undefined ? "" : value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+    }
+
+    // Map a quality label to a fixed CSS class, never to arbitrary text.
+    function qualityBadgeClass(label) {
+        const classes = { excellent: "badge-excellent", good: "badge-good", fair: "badge-fair", poor: "badge-poor" };
+        return classes[String(label || "").toLowerCase()] || "badge-secondary";
     }
 
     // Quick Command Buttons & Custom Input
