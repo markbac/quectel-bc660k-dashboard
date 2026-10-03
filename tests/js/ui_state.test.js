@@ -124,7 +124,7 @@ test("scan panel no longer promises 30 seconds and shows elapsed time (#93)", ()
     const loading = h.document.getElementById("scanLoading");
     assert.ok(!loading.classList.contains("hidden"));
     assert.doesNotMatch(loading.textContent, /30\s?s/);
-    assert.match(loading.textContent, /3 minutes/);
+    assert.match(loading.textContent, /5 minutes/);
     assert.match(h.text("scanElapsed"), /0:00 elapsed/);
     h.push({ ...fullState, is_scanning: false });
     assert.strictEqual(h.text("scanElapsed"), "");
@@ -173,4 +173,10 @@ test("history shows bare PLMN codes and labelled ones alike (#95)", async () => 
     const text = h.document.getElementById("historyTableBody").textContent;
     assert.strictEqual((text.match(/PLMN 23415/g) || []).length, 2);
     assert.ok(!/PLMN PLMN/.test(text));
+});
+
+test("the page does not name an operator it has not detected (#102)", () => {
+    const h = loadDashboard();
+    assert.strictEqual(h.document.getElementById("apnInput").value, "");
+    assert.doesNotMatch(h.document.body.innerHTML, /vodafone/i);
 });

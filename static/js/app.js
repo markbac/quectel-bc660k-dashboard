@@ -1057,7 +1057,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 return `
                     <tr>
                         <td><span class="badge ${badgeClass}">${escapeHtml(net.status)}</span></td>
-                        <td><strong>${escapeHtml(net.long_name)}</strong> (${escapeHtml(net.short_name)})</td>
+                        <td><strong>${escapeHtml(net.long_name)}</strong>${net.short_name && net.short_name !== net.long_name ? ` (${escapeHtml(net.short_name)})` : ""}</td>
                         <td>${escapeHtml(net.plmn)}</td>
                         <td>${escapeHtml(net.act)}</td>
                     </tr>

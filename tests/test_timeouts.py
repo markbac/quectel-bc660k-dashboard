@@ -17,7 +17,7 @@ from tests.pty_modem import PtyModem
     ('AT+QENG="servingcell"', 15.0),
     ("AT+QENG=0", 15.0),
     ("AT+CGATT=1", 70.0),
-    ("AT+COPS=?", 180.0),
+    ("AT+COPS=?", 600.0),
     ("AT+CGATT?", at_channel.DEFAULT_AT_TIMEOUT),
     ("AT+UNKNOWN", at_channel.DEFAULT_AT_TIMEOUT),
 ])

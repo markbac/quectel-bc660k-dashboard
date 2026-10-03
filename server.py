@@ -24,6 +24,7 @@ from serial_manager import LOGGER_NAME, SerialManager
 from cell_location import CellLocator, CellLookupError, NoApiKey, CellNotFound
 from exporter import ExportConfig, Exporter
 from modem_replay import TranscriptModem
+from plmn import display_operator
 from port_detect import detect_at_port
 from transcript import TranscriptRecorder, load_transcript
 
@@ -267,8 +268,11 @@ def scan_networks():
 @app.get("/api/history")
 def get_history(limit: int = Query(200, ge=10, le=2000)):
     iccid = manager.current_iccid
+    rows = manager.db.get_history(iccid, limit=limit)
+    for row in rows:
+        row["operator"] = display_operator(row.get("operator"))
     return {
-        "history": manager.db.get_history(iccid, limit=limit),
+        "history": rows,
         "stats": manager.db.get_stats(iccid),
         "awaiting_identity": iccid is None,
     }
