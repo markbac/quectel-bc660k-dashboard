@@ -183,3 +183,15 @@ def test_api_history_export_and_clear_are_scoped(api):
 
     assert client.post("/api/history/clear").json()["deleted"] == 1
     assert server.manager.db.get_stats(ICCID_B)["total_records"] == 1
+
+
+def test_api_sessions_are_scoped_to_the_connected_sim(api):
+    server, client = api
+    server.manager.db.start_session(ICCID_A)
+    server.manager.db.start_session(ICCID_B)
+    assert client.get("/api/sessions").json() == {"sessions": []}
+
+    server.manager.state["sim_info"]["iccid"] = ICCID_A
+
+    sessions = client.get("/api/sessions").json()["sessions"]
+    assert [s["iccid"] for s in sessions] == [ICCID_A]

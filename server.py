@@ -173,6 +173,11 @@ def get_history(limit: int = Query(200, ge=10, le=2000)):
         "awaiting_identity": iccid is None,
     }
 
+@app.get("/api/sessions")
+def get_sessions():
+    """Recording sessions of the connected SIM (empty until its ICCID is known)."""
+    return {"sessions": manager.db.get_sessions(manager.current_iccid)}
+
 @app.get("/api/history/export")
 def export_csv():
     records = manager.db.get_history(manager.current_iccid, limit=5000)
