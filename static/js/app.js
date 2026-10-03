@@ -553,7 +553,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         <td>${escapeHtml(row.rssi)} dBm</td>
                         <td>${escapeHtml(row.sinr)} dB</td>
                         <td><span class="badge ${qualityBadgeClass(row.quality_label)}">${escapeHtml(row.quality_label)}</span></td>
-                        <td>${escapeHtml(row.operator || '-')}</td>
+                        <td>${escapeHtml(historyOperator(row.operator))}</td>
                         <td><code>${escapeHtml(row.cell_id)}</code></td>
                         <td>${row.temperature === null || row.temperature === undefined ? "--" : escapeHtml(row.temperature) + "°C"}</td>
                         <td>${escapeHtml(row.voltage)} mV</td>
@@ -835,6 +835,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // Update Dashboard UI with state object
+    // Rows saved before the PLMN label existed hold a bare "23415"; show both alike.
+    function historyOperator(value) {
+        if (!value) return "-";
+        return /^\d{5,6}$/.test(value) ? `PLMN ${value}` : value;
+    }
+
+    // The console already shows [TX] or [RX], so drop the "TX> " / "RX< " in the text.
+    function stripDirectionPrefix(entry) {
+        return String(entry.text).replace(/^(TX> |RX< )/, "");
+    }
+
     // Elapsed time shown while a carrier scan runs; a scan can take minutes.
     let scanClock = null;
     let scanStartedAt = 0;
@@ -904,7 +915,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // APN Info Update
         const apnInfo = state.apn_info || {};
         currentApnVal.textContent = isCommunicated ? (apnInfo.apn || "Default / Blank") : "--";
-        pdpTypeVal.textContent = isCommunicated ? `${apnInfo.pdp_type || 'IP'} (CID: ${apnInfo.pdp_cid || 1})` : "--";
+        pdpTypeVal.textContent = isCommunicated ? `${apnInfo.pdp_type || 'IP'} (CID: ${apnInfo.pdp_cid ?? 1})` : "--";
         if (isCommunicated && apnInfo.attached) {
             apnAttachBadge.className = "badge badge-good";
             apnAttachBadge.textContent = "Attached";
@@ -1106,7 +1117,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function appendLog(entry) {
         const div = document.createElement("div");
         div.className = `log-line log-${String(entry.direction).toLowerCase().replace(/[^a-z]/g, "")}`;
-        div.innerHTML = `<span class="timestamp">[${escapeHtml(entry.timestamp)}]</span><span class="dir">[${escapeHtml(entry.direction)}]</span> ${escapeHtml(entry.text)}`;
+        div.innerHTML = `<span class="timestamp">[${escapeHtml(entry.timestamp)}]</span><span class="dir">[${escapeHtml(entry.direction)}]</span> ${escapeHtml(stripDirectionPrefix(entry))}`;
         logConsole.appendChild(div);
         logConsole.scrollTop = logConsole.scrollHeight;
     }
