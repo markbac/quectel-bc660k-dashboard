@@ -86,6 +86,8 @@ class DNSRequest(BaseModel):
 @app.post("/api/psm")
 def config_psm(req: PSMRequest):
     res = manager.set_psm_config(req.enabled, req.t3412 or "10100101", req.t3324 or "00100100")
+    if not manager.is_ok(res):
+        raise HTTPException(status_code=502, detail=f"Modem did not accept AT+CPSMS: {res.strip()}")
     return {"status": "ok", "response": res, "state": manager.state}
 
 @app.post("/api/edrx")

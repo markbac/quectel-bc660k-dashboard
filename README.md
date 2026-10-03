@@ -47,6 +47,19 @@ Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
 ---
 
+## 🔋 PSM Timers
+
+The PSM panel sends the timers as 8-bit strings (3GPP unit bits followed by a 5-bit value). The defaults are:
+
+| Timer | Default | Meaning |
+|---|---|---|
+| T3412 (periodic TAU) | `10100101` | unit `101` = 1 minute, value 5, so 5 minutes |
+| T3324 (active time) | `00100100` | unit `001` = 1 minute, value 4, so 4 minutes |
+
+These are requests. The network decides the values actually granted, so the panel shows what the module reports from `AT+CPSMS?` after the command. Once PSM is on, the module can stop answering on the UART after T3324 expires.
+
+---
+
 ## 🧪 Running the Tests
 
 ```bash

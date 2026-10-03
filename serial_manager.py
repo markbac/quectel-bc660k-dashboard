@@ -299,16 +299,52 @@ class SerialManager:
             return "OK"
 
         with self.lock:
-            cmd = f'AT+CPSMS={mode},,,"{t3412}","{t3324}"'
-            resp = self._send_at_cmd_raw(cmd)
-            self.state["psm_info"] = {
-                "enabled": enabled,
-                "t3412": t3412,
-                "t3324": t3324,
-                "status": "PSM Enabled" if enabled else "PSM Disabled"
-            }
+            if enabled:
+                # 3GPP five-field form first; some firmware documents a
+                # three-field form, so fall back to it if the module rejects it.
+                resp = self._send_at_cmd_raw(f'AT+CPSMS=1,,,"{t3412}","{t3324}"')
+                if not self.is_ok(resp) and "Timeout" not in resp:
+                    self.log("[PSM CONFIG] Five-field form rejected, trying the three-field form.", "WARNING")
+                    resp = self._send_at_cmd_raw(f'AT+CPSMS=1,"{t3412}","{t3324}"')
+            else:
+                resp = self._send_at_cmd_raw("AT+CPSMS=0")
+
+            if not self.is_ok(resp):
+                self.state["psm_info"]["status"] = f"PSM command failed: {resp.strip()}"
+                self.log(f"[PSM ERROR] Module did not accept the PSM setting: {resp.strip()}", "ERROR")
+                self._notify("state", self.state)
+                return resp
+
+            # Report what the module says, not what was requested.
+            self._parse_cpsms(self._send_at_cmd_raw("AT+CPSMS?"), requested=(enabled, t3412, t3324))
             self._notify("state", self.state)
             return resp
+
+    @staticmethod
+    def is_ok(resp: str) -> bool:
+        """True when a response contains a final ``OK`` line."""
+        return bool(re.search(r"(?m)^OK\s*$", resp))
+
+    def _parse_cpsms(self, resp: str, requested=None):
+        """Update ``psm_info`` from an ``AT+CPSMS?`` read-back.
+
+        Handles ``+CPSMS: 1,,,"<T3412>","<T3324>"`` and the three-field form.
+        If the read-back cannot be parsed, fall back to the requested values.
+        """
+        match = re.search(r"\+CPSMS:\s*(\d)", resp)
+        timers = re.findall(r'"([01]{8})"', resp)
+        if match:
+            enabled = match.group(1) == "1"
+            t3412, t3324 = (timers[-2], timers[-1]) if len(timers) >= 2 else (None, None)
+        elif requested:
+            enabled, t3412, t3324 = requested
+        else:
+            return
+        info = self.state["psm_info"]
+        info["enabled"] = enabled
+        if t3412 and t3324:
+            info["t3412"], info["t3324"] = t3412, t3324
+        info["status"] = "PSM Enabled" if enabled else "PSM Disabled"
 
     def set_edrx_config(self, enabled: bool, edrx_val: str = "0010") -> str:
         """Configure eDRX (Extended Discontinuous Reception) on Quectel BC660K."""
