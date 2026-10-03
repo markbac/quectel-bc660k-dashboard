@@ -79,3 +79,47 @@ def test_websocket_from_the_dashboard_origin_works(client):
     headers = {"Host": "localhost:8080", "Origin": "http://localhost:8080"}
     with client.websocket_connect("/ws", headers=headers) as ws:
         assert ws.receive_json()["type"] == "state"
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("localhost:8080", 8080), ("localhost", None), ("[::1]:9", 9), ("[::1]", None), ("localhost:x", None),
+])
+def test_port_of(value, expected):
+    from security import port_of
+    assert port_of(value) == expected
+
+
+@pytest.mark.parametrize("origin,ok", [
+    ("http://localhost:8080", True),
+    ("http://localhost:9999", False),
+    ("http://localhost", False),
+    ("http://localhost:80", False),
+])
+def test_origin_port_is_checked_when_configured(origin, ok):
+    assert origin_allowed(origin, port=8080) is ok
+
+
+def test_default_port_of_scheme_is_used():
+    assert origin_allowed("http://localhost", port=80)
+    assert origin_allowed("https://localhost", port=443)
+
+
+def test_middleware_rejects_wrong_host_port():
+    import asyncio
+    from security import LocalOnlyMiddleware
+
+    sent = []
+
+    async def app(scope, receive, send):
+        sent.append("app")
+
+    async def send(message):
+        sent.append(message.get("status"))
+
+    def call(host):
+        scope = {"type": "http", "headers": [(b"host", host)]}
+        asyncio.run(LocalOnlyMiddleware(app, port=8080)(scope, None, send))
+
+    call(b"localhost:8080")
+    call(b"localhost:9000")
+    assert sent == ["app", 403, None]

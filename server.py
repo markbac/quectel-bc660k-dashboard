@@ -6,7 +6,6 @@ import asyncio
 import json
 import csv
 import io
-import argparse
 import threading
 import webbrowser
 from typing import Dict, Any, List, Optional
@@ -16,6 +15,7 @@ from fastapi.responses import HTMLResponse, FileResponse, Response
 from pydantic import BaseModel
 import uvicorn
 
+import cli
 import instance
 from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
@@ -23,18 +23,10 @@ from serial_manager import SerialManager
 from pylogkit import setup_logging
 from port_detect import detect_at_port
 
-# Parse Command Line Arguments
-parser = argparse.ArgumentParser(description="Quectel BC660K Signal & Network Web Dashboard")
-parser.add_argument("--demo", "-d", action="store_true", help="Start dashboard in hardware simulator demo mode")
-parser.add_argument("--port", "-p", type=str, default=None, help="Serial port to connect to on startup, e.g. COM3 or /dev/ttyUSB0; 'auto' probes every port for an AT modem (default: do not connect)")
-parser.add_argument("--baud", "-b", type=int, default=115200, help="Initial baud rate (default: 115200)")
-parser.add_argument("--db-path", type=str, default=None, help="SQLite database file (default: per-user data directory, or $QUECTEL_DASHBOARD_DB)")
-parser.add_argument("--retention-days", type=float, default=90, help="Delete history older than this many days (0 keeps everything, default: 90)")
-parser.add_argument("--no-file-log", action="store_true", help="Disable writing serial logs to disk file")
-args, _ = parser.parse_known_args()
+args = cli.parse_args()
 
 app = FastAPI(title="Quectel BC660K Signal & Network Dashboard")
-app.add_middleware(LocalOnlyMiddleware)
+app.add_middleware(LocalOnlyMiddleware, port=args.http_port)
 try:
     manager = SerialManager(file_logging_enabled=not args.no_file_log, db_path=args.db_path, retention_days=args.retention_days)
 except SchemaTooNewError as exc:
@@ -284,7 +276,9 @@ def setup_signal_handlers():
     except Exception as e:
         print(f"[SYSTEM] Signal handler notice: {e}")
 
-if __name__ == "__main__":
+def main() -> None:
+    """Start the dashboard server (console-script entry point)."""
+    global loop
     setup_signal_handlers()
     instance.write_pid_file()
 
@@ -306,8 +300,8 @@ if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    port_num = 8080
-    url = f"http://localhost:{port_num}"
+    port_num = args.http_port
+    url = cli.server_url(args.host, port_num)
     print(f"\n=======================================================")
     print(f"Quectel BC660K Web Dashboard v{manager.VERSION} running at: {url}")
     print(f"Baud Rate: {args.baud}")
@@ -317,15 +311,20 @@ if __name__ == "__main__":
     print(f"Press Ctrl+C in terminal or click Exit in Web UI to stop")
     print(f"=======================================================\n")
 
-    try:
-        webbrowser.open(url)
-    except Exception:
-        pass
+    if not args.no_browser:
+        try:
+            webbrowser.open(url)
+        except Exception:
+            pass
 
-    config = uvicorn.Config(app=app, host="127.0.0.1", port=port_num, loop="asyncio")
+    config = uvicorn.Config(app=app, host=args.host, port=port_num, loop="asyncio")
     server = uvicorn.Server(config)
     try:
         loop.run_until_complete(server.serve())
     except (KeyboardInterrupt, SystemExit):
         print("\n[SYSTEM] Server process terminated.")
         manager.disconnect()
+
+
+if __name__ == "__main__":
+    main()

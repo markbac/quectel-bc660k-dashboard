@@ -20,21 +20,45 @@ def hostname_of(host_header: str) -> str:
     return host.split(":", 1)[0]
 
 
-def origin_allowed(origin: str, allowed: Iterable[str] = ALLOWED_HOSTNAMES) -> bool:
-    """True if an ``Origin`` header value names the local machine."""
+def port_of(host_header: str) -> Optional[int]:
+    """Return the port in a ``Host`` header value, or ``None`` if absent or invalid."""
+    host = host_header.strip()
+    tail = host[host.find("]") + 1:] if host.startswith("[") else host[host.find(":"):] if ":" in host else ""
+    if not tail.startswith(":") or not tail[1:].isdigit():
+        return None
+    return int(tail[1:])
+
+
+def origin_allowed(origin: str, allowed: Iterable[str] = ALLOWED_HOSTNAMES,
+                   port: Optional[int] = None) -> bool:
+    """True if an ``Origin`` header value names the local machine.
+
+    :param port: if given, the origin must also use this TCP port (the default
+        port of the scheme when the origin names none).
+    """
     parts = urlsplit(origin)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         return False
     hostname = parts.hostname.lower()
-    return hostname in allowed or f"[{hostname}]" in allowed
+    if hostname not in allowed and f"[{hostname}]" not in allowed:
+        return False
+    if port is None:
+        return True
+    try:
+        origin_port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return False
+    return origin_port == port
 
 
 class LocalOnlyMiddleware:
     """ASGI middleware that rejects foreign ``Host`` and ``Origin`` headers."""
 
-    def __init__(self, app, allowed_hostnames: Iterable[str] = ALLOWED_HOSTNAMES):
+    def __init__(self, app, allowed_hostnames: Iterable[str] = ALLOWED_HOSTNAMES,
+                 port: Optional[int] = None):
         self.app = app
         self.allowed = frozenset(allowed_hostnames)
+        self.port = port
 
     @staticmethod
     def _header(scope, name: bytes) -> Optional[str]:
@@ -47,9 +71,11 @@ class LocalOnlyMiddleware:
         host = self._header(scope, b"host")
         if host is None or hostname_of(host) not in self.allowed:
             return False
+        if self.port is not None and port_of(host) not in (None, self.port):
+            return False
         origin = self._header(scope, b"origin")
         # A missing Origin means a non-browser client (curl, scripts).
-        return origin is None or origin_allowed(origin, self.allowed)
+        return origin is None or origin_allowed(origin, self.allowed, self.port)
 
     async def __call__(self, scope, receive, send):
         if scope["type"] not in ("http", "websocket") or self._permitted(scope):

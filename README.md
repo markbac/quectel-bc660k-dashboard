@@ -46,6 +46,14 @@ python server.py --port auto                # probe every serial port for an AT 
 python server.py --port COM3 --baud 115200  # Windows
 python server.py --port /dev/ttyUSB0        # Linux (macOS: /dev/cu.usbserial-*)
 ```
+Other options: `--host` (loopback addresses only, default `127.0.0.1`), `--http-port` (web server port, default `8080`), `--no-browser`, `--db-path`, `--retention-days`, `--no-file-log`; `--help` lists them all. The `Host` and `Origin` checks follow `--http-port`.
+
+For a `quectel-dashboard` command, install the project in editable mode from the checkout (the web assets are read from the checkout, so a plain install is not supported):
+```bash
+pip install -e .
+quectel-dashboard --demo --no-browser
+```
+
 The magnifying-glass button next to the port list does the same probing from the UI. Candidate ports from FTDI (the FT4232H board exposes four) and Quectel come first, and each is sent `AT` to find the one that answers `OK`.
 Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
