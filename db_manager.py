@@ -317,6 +317,65 @@ class DBManager:
         result.reverse()  # chronological order
         return result
 
+    def get_series(
+        self,
+        iccid: Optional[str],
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        session_id: Optional[int] = None,
+        max_points: int = 300,
+    ) -> List[Dict[str, Any]]:
+        """Signal series for charting, averaged into at most ``max_points`` buckets.
+
+        The time span is split into equal buckets and each non-empty bucket is
+        returned as the mean RSRP, RSRQ and SINR with its mean ``unix_time``,
+        oldest first. Short histories come back as plain rows (bucket width 0).
+
+        :param start_time: lower bound (unix seconds); defaults to the first row
+        :param end_time: upper bound (unix seconds); defaults to the last row
+        :param session_id: restrict to one recording session of the SIM
+        """
+        if not self.is_valid_iccid(iccid) or max_points < 1:
+            return []
+
+        where = "iccid = ? AND rsrp IS NOT NULL"
+        params: List[Any] = [iccid]
+        if start_time is not None:
+            where += " AND unix_time >= ?"
+            params.append(start_time)
+        if end_time is not None:
+            where += " AND unix_time <= ?"
+            params.append(end_time)
+        if session_id is not None:
+            where += " AND session_id = ?"
+            params.append(session_id)
+
+        with closing(self._get_connection()) as conn:
+            first, last, count = conn.execute(
+                f"SELECT MIN(unix_time), MAX(unix_time), COUNT(*) FROM signal_history WHERE {where}",
+                params,
+            ).fetchone()
+            if not count:
+                return []
+            width = (last - first) / max_points if count > max_points else 0
+            if width <= 0:
+                rows = conn.execute(
+                    f"SELECT unix_time, rsrp, rsrq, sinr FROM signal_history WHERE {where} "
+                    "ORDER BY unix_time", params,
+                ).fetchall()
+                return [dict(r) for r in rows]
+            rows = conn.execute(
+                f"""
+                SELECT AVG(unix_time) AS unix_time, AVG(rsrp) AS rsrp,
+                       AVG(rsrq) AS rsrq, AVG(sinr) AS sinr
+                FROM signal_history WHERE {where}
+                GROUP BY MIN(CAST((unix_time - ?) / ? AS INTEGER), ?)
+                ORDER BY unix_time
+                """,
+                params + [first, width, max_points - 1],
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     EMPTY_STATS = {
         "total_records": 0,
         "min_rsrp": 0,
