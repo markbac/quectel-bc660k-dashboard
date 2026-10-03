@@ -21,6 +21,7 @@ A large reliability, security and feature release. Several changes are not backw
 - Wrong access-technology and registration labels (#52). PSM changes are checked and the granted timers read back (#53).
 - Only a previous instance of this dashboard is stopped when reclaiming a port (#47).
 - Modem and network strings are escaped before rendering (#55).
+- Found by running 2.0.0 on a real BC660K-GL: the ping result is read from its summary line rather than the first per-packet code (#82), network scans get 180 s and no longer make the module look dead (#83), the IP address is read from the board's own PDP context (#84), and MCC/MNC are derived from the numeric operator code (#85).
 
 ### Added
 
@@ -36,4 +37,5 @@ A large reliability, security and feature release. Several changes are not backw
 
 ### Internal
 
+- A sanitised capture from a real BC660K-GL is replayed in the tests, which confirmed the formats of `AT+QENG=0`, `AT+CEREG?` with granted timers, `AT+CPSMS?`, `AT+CEDRXS?`, `AT+QSCLK?`, `AT+CBC` and `AT+CGSN=1` (#86).
 - AT command layer extracted into `at_channel.py` (#65), a pytest and jsdom test suite, GitHub Actions CI, bench scripts moved to `tools/` (#72).

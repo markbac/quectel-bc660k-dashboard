@@ -1,0 +1,49 @@
+{"cmd": "AT", "reply": "\r\n", "delay": 1.817}
+{"cmd": "AT", "reply": "\r\nOK\r\n", "delay": 0.022}
+{"cmd": "ATE0", "reply": "\r\nOK\r\n", "delay": 0.021}
+{"cmd": "ATI", "reply": "\r\nQuectel_Ltd\r\nQuectel_BC660K-GL\r\nRevision: BC660KGLAAR01A05\r\n\r\nOK\r\n", "delay": 0.022}
+{"cmd": "AT+CGMR", "reply": "\r\nRevision: BC660KGLAAR01A05\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CGSN=1", "reply": "\r\n+CGSN: 001010000000001\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CPIN?", "reply": "\r\n+CPIN: READY\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QCCID", "reply": "\r\n+QCCID: 89000000000000000001\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CIMI", "reply": "\r\n001010000000001\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CBC", "reply": "\r\n+CBC: 3470\r\n\r\nOK\r\n", "delay": 0.022}
+{"cmd": "AT+QTEMP", "reply": "\r\nERROR\r\n", "delay": 0.021}
+{"cmd": "AT+QNBIOTEVENT=1,1", "reply": "\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QCFG=\"dsevent\",1", "reply": "\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CEREG=4", "reply": "\r\nOK\r\n", "delay": 0.103}
+{"cmd": "AT+CPSMS?", "reply": "\r\n+CPSMS: 1,,,\"01000001\",\"00100011\"\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CEDRXS?", "reply": "\r\n+CEDRXS: 5,\"0011\"\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QSCLK?", "reply": "\r\n+QSCLK: 1\r\n\r\nOK\r\n", "delay": 0.041}
+{"cmd": "AT+CEDRXRDP", "reply": "\r\n+CEDRXRDP: 0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CGDCONT?", "reply": "\r\n+CGDCONT: 0,\"IP\",\"test.apn\",\"10.0.0.7\"\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CGATT?", "reply": "\r\n+CGATT: 1\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CGPADDR=1", "reply": "\r\n+CGPADDR: 1\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 10,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-100,-7,-93,11,20,\"0001\",0,-128,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+COPS?", "reply": "\r\n+COPS: 1,2,\"23415\",9\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CEREG?", "reply": "\r\n+CEREG: 4,5,\"0001\",\"0000ABCD\",9,,,\"00100011\",\"00101010\"\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CBC", "reply": "\r\n+CBC: 3470\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 10,0\r\n\r\nOK\r\n", "delay": 0.022}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-100,-7,-93,11,20,\"0001\",0,-128,2\r\n\r\nOK\r\n", "delay": 0.022}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 10,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-100,-7,-93,11,20,\"0001\",0,-128,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 10,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-100,-7,-93,11,20,\"0001\",0,-128,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+QPING=0,\"8.8.8.8\",4,4", "reply": "\r\nOK\r\n\r\n\r\n+QPING: 569\r\n", "delay": 4.161}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.041}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-102,-8,-94,5,20,\"0001\",0,21,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-103,-8,-95,7,20,\"0001\",0,23,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-102,-8,-94,6,20,\"0001\",0,23,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.022}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-102,-8,-94,6,20,\"0001\",0,23,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-103,-9,-94,6,20,\"0001\",0,23,2\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 11,0\r\n\r\nOK\r\n", "delay": 0.042}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-103,-9,-94,1,20,\"0001\",0,-128,2\r\n\r\nOK\r\n", "delay": 0.041}
+{"cmd": "AT+COPS?", "reply": "\r\n+COPS: 1,2,\"23415\",9\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CBC", "reply": "\r\n+CBC: 3460\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 10,0\r\n\r\nOK\r\n", "delay": 0.021}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6254,12,299,\"0000ABCD\",-103,-9,-94,6,20,\"0001\",0,-128,2\r\n+QENG: 1,6254,298,-108,-17\r\n\r\nOK\r\n", "delay": 0.042}
