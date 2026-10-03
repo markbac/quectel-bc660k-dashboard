@@ -51,7 +51,8 @@ Open **[http://localhost:8080](http://localhost:8080)** in your web browser.
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest
+python -m pytest      # back end
+npm install && npm test   # front end (jsdom)
 ```
 
 ---

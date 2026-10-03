@@ -241,6 +241,37 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- System Diagnostics -->
+                <div class="card sys-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-microchip"></i> System Diagnostics</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="info-grid">
+                            <div class="info-item">
+                                <span class="info-label">IMEI</span>
+                                <span class="info-val font-mono" id="imeiVal">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Firmware</span>
+                                <span class="info-val font-mono" id="firmwareVal">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Supply Voltage</span>
+                                <span class="info-val" id="voltageVal">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Temperature</span>
+                                <span class="info-val" id="tempVal">--</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Cell Location</span>
+                                <a class="info-val" id="mapLink" href="#" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-map-pin"></i> Awaiting Cell Geolocation...</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             <!-- Row: PSM/eDRX & Ping Benchmark -->
             <section class="apn-row">
                 <!-- PSM & eDRX Card -->
