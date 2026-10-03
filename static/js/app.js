@@ -84,6 +84,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let socket = null;
     let chart = null;
+    let lastIccid = null;
     let chartData = {
         labels: [],
         rsrp: [],
@@ -221,8 +222,10 @@ document.addEventListener("DOMContentLoaded", () => {
             statUniqueCells.textContent = stats.total_cells || 0;
 
             const history = data.history || [];
-            if (history.length === 0) {
-                historyTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No historical telemetry records in SQLite database yet.</td></tr>`;
+            if (data.awaiting_identity) {
+                historyTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">Awaiting SIM identity. History is shown per SIM once the ICCID is known.</td></tr>`;
+            } else if (history.length === 0) {
+                historyTableBody.innerHTML = `<tr><td colspan="10" class="empty-state">No historical telemetry records for this SIM yet.</td></tr>`;
             } else {
                 const rev = [...history].reverse();
                 historyTableBody.innerHTML = rev.slice(0, 50).map(row => `
@@ -246,11 +249,11 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     clearDbBtn.addEventListener("click", async () => {
-        if (confirm("Clear SQLite database and start fresh with a clean telemetry history?")) {
+        if (confirm("Delete the stored telemetry history for the connected SIM?")) {
             await fetch("/api/history/clear", { method: "POST" });
-            chartData.labels = [];
-            chartData.rsrp = [];
-            chartData.rsrq = [];
+            chartData.labels.length = 0;
+            chartData.rsrp.length = 0;
+            chartData.rsrq.length = 0;
             if (chart) chart.update();
             loadHistory();
         }
@@ -672,6 +675,17 @@ document.addEventListener("DOMContentLoaded", () => {
             if (chart) {
                 chart.update();
             }
+        }
+
+        // History follows the SIM: when the ICCID changes, drop the live
+        // chart and reload the table for the new SIM.
+        const iccidNow = (state.sim_info && state.sim_info.iccid) || "--";
+        if (iccidNow !== lastIccid) {
+            lastIccid = iccidNow;
+            chartData.labels.length = 0;
+            chartData.rsrp.length = 0;
+            chartData.rsrq.length = 0;
+            if (chart) chart.update();
         }
 
         loadHistory();

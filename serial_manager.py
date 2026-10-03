@@ -66,8 +66,13 @@ CEREG_STAT_NAMES = {
 }
 
 
+# Fixed identity used in demo mode so simulated rows never mix with real data.
+DEMO_ICCID = "DEMO-SIMULATED-SIM"
+
+
 class SerialManager:
     VERSION = __version__
+    IDENTITY_RECHECK_SECONDS = 60.0
     ATTACH_CHECKS = 5
     # Context ID used by the documented AT+QPING / AT+QIDNSGIP examples.
     PING_CONTEXT_ID = 0
@@ -126,6 +131,7 @@ class SerialManager:
         self.last_cops_op: str = "Unknown"
         self.last_cereg_stat: str = "Unknown"
         self._temp_supported: bool = False
+        self._last_identity_check: float = 0.0
 
         # Current state cache
         self.state = self._get_initial_state()
@@ -202,6 +208,12 @@ class SerialManager:
             "last_update": time.time(),
             "logs": []
         }
+
+    @property
+    def current_iccid(self) -> Optional[str]:
+        """ICCID of the connected SIM, or None until it is known."""
+        iccid = self.state["sim_info"]["iccid"]
+        return iccid if DBManager.is_valid_iccid(iccid) else None
 
     def update_settings(self, telemetry_interval: Optional[int] = None, cops_scan_interval: Optional[int] = None):
         if telemetry_interval is not None and telemetry_interval >= 1:
@@ -636,6 +648,7 @@ class SerialManager:
                 "temperature": 31,
             })
             self.state["sim_info"]["sim_status"] = "READY"
+            self.state["sim_info"]["iccid"] = DEMO_ICCID
             self.log("[DEMO MODE] Started hardware simulator (CLI --demo flag)", "INFO")
 
             self.poll_thread = threading.Thread(target=self._demo_loop, daemon=True)
@@ -836,6 +849,7 @@ class SerialManager:
 
         iccid_resp = self._send_at_cmd_raw("AT+QCCID")
         self._parse_iccid(iccid_resp)
+        self._last_identity_check = time.monotonic()
 
         imsi_resp = self._send_at_cmd_raw("AT+CIMI")
         self._parse_imsi(imsi_resp)
@@ -881,6 +895,25 @@ class SerialManager:
                 self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
                 return
             parser(resp)
+
+        if time.monotonic() - self._last_identity_check >= self.IDENTITY_RECHECK_SECONDS:
+            self._refresh_identity()
+
+    def _refresh_identity(self):
+        """Re-read the ICCID so a SIM swap or module reset is noticed.
+
+        History is scoped by ICCID, so the view follows the SIM that is
+        actually in the board.
+        """
+        self._last_identity_check = time.monotonic()
+        previous = self.state["sim_info"]["iccid"]
+        resp = self._send_at_cmd_raw("AT+QCCID")
+        self._parse_iccid(resp)
+        if "ERROR" in resp and "Timeout" not in resp:
+            self.state["sim_info"]["iccid"] = "--"
+        current = self.state["sim_info"]["iccid"]
+        if current != previous:
+            self.log("[SIM] SIM identity changed; history view follows the new SIM.", "WARNING")
 
     def _poll_loop(self):
         last_db_log = 0
