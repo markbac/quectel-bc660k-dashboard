@@ -10,14 +10,14 @@ import serial
 COMMANDS = [
     ("AT", "Ping Check"),
     ("ATI", "Module Information"),
-    ("AT+GMR", "Firmware Revision"),
+    ("AT+CGMR", "Firmware Revision"),
     ("AT+CPIN?", "SIM PIN Status"),
     ("AT+QCCID", "SIM Card ICCID"),
     ("AT+CIMI", "SIM IMSI Subscriber ID"),
     ("AT+CSQ", "Signal Quality (CSQ)"),
     ("AT+CBC", "Supply Voltage (mV)"),
     ("AT+QTEMP", "Module Temperature (°C)"),
-    ('AT+QENG="servingcell"', "Serving Cell Parameters"),
+    ("AT+QENG=0", "Serving Cell Parameters"),
     ("AT+COPS?", "Current Registered Operator"),
     ("AT+CEREG?", "Network Registration Status"),
 ]
