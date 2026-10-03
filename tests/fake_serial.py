@@ -1,4 +1,5 @@
 """A scriptable stand-in for ``serial.Serial`` used by the tests."""
+import time
 from typing import Dict, List, Union
 
 
@@ -9,13 +10,16 @@ class FakeSerial:
     repeating. Commands without an entry get ``"\\r\\nOK\\r\\n"``.
     """
 
-    def __init__(self, responses: Dict[str, Union[str, List[str]]]):
+    def __init__(self, responses: Dict[str, Union[str, List[str]]], write_delay: float = 0.0):
         self.responses = responses
+        self.write_delay = write_delay
         self.is_open = True
         self.sent: List[str] = []
         self._buffer = b""
 
     def write(self, data: bytes) -> int:
+        if self.write_delay:
+            time.sleep(self.write_delay)
         cmd = data.decode("ascii").strip()
         self.sent.append(cmd)
         reply = self.responses.get(cmd, "\r\nOK\r\n")

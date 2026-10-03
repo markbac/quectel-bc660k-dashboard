@@ -85,6 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let socket = null;
     let chart = null;
     let lastIccid = null;
+    const HISTORY_REFRESH_MS = 30000;
     let chartData = {
         labels: [],
         rsrp: [],
@@ -680,7 +681,8 @@ document.addEventListener("DOMContentLoaded", () => {
         // History follows the SIM: when the ICCID changes, drop the live
         // chart and reload the table for the new SIM.
         const iccidNow = (state.sim_info && state.sim_info.iccid) || "--";
-        if (iccidNow !== lastIccid) {
+        const iccidChanged = iccidNow !== lastIccid;
+        if (iccidChanged) {
             lastIccid = iccidNow;
             chartData.labels.length = 0;
             chartData.rsrp.length = 0;
@@ -688,7 +690,9 @@ document.addEventListener("DOMContentLoaded", () => {
             if (chart) chart.update();
         }
 
-        loadHistory();
+        if (iccidChanged) {
+            loadHistory();
+        }
     }
 
     // Network Scan Trigger
@@ -771,5 +775,8 @@ document.addEventListener("DOMContentLoaded", () => {
     initChart();
     loadPorts();
     loadHistory();
+    // History changes slowly: refresh on a timer and when the SIM changes,
+    // not on every state push.
+    setInterval(loadHistory, HISTORY_REFRESH_MS);
     connectWebSocket();
 });

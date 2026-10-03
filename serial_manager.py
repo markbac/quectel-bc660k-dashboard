@@ -87,6 +87,7 @@ class SerialManager:
         cops_scan_interval: int = 0,
         db_path: Optional[str] = None,
         log_file_path: Optional[str] = None,
+        retention_days: float = 0,
     ):
         """Create a manager.
 
@@ -97,6 +98,8 @@ class SerialManager:
             db_path: SQLite file to use. Defaults to the per-user data directory
                 (see ``db_manager.default_db_path``).
             log_file_path: Log file to use. Defaults to ``dashboard_serial.log``.
+            retention_days: Delete history older than this many days at start-up
+                and once a day (0 keeps everything).
         """
         self.ser: Optional[serial.Serial] = None
         self.port: Optional[str] = None
@@ -111,6 +114,8 @@ class SerialManager:
         self.running: bool = False
         self.callbacks = []
         self.db = DBManager(db_path) if db_path else DBManager()
+        self.retention_days = retention_days
+        self._last_prune: Optional[float] = None
 
         self.telemetry_interval: int = telemetry_interval
         self.cops_scan_interval: int = cops_scan_interval
@@ -233,8 +238,19 @@ class SerialManager:
             info = self.state["system_info"]
             self._session_id = self.db.start_session(iccid, info.get("imei"), info.get("firmware"))
 
+    def _prune_if_due(self):
+        """Apply the retention policy at most once a day."""
+        if self.retention_days > 0 and (
+            self._last_prune is None or time.monotonic() - self._last_prune >= 86400
+        ):
+            self._last_prune = time.monotonic()
+            deleted = self.db.prune_older_than(self.retention_days)
+            if deleted:
+                self.log(f"[RETENTION] Deleted {deleted} history rows older than {self.retention_days} days.", "INFO")
+
     def _log_history(self):
         """Write one history row for the current state, if it qualifies."""
+        self._prune_if_due()
         self._update_session()
         self.db.log_record(self.state, self._session_id)
 
@@ -897,10 +913,12 @@ class SerialManager:
         self._parse_cgpaddr(self._send_at_cmd_raw("AT+CGPADDR=1"))
 
     def _poll_once(self):
-        """Run one poll cycle. The caller must hold ``self.lock``.
+        """Run one poll cycle.
 
-        The cycle stops at the first timeout so an unresponsive modem does
-        not hold the lock for the sum of every command's timeout.
+        The serial lock is taken for one command at a time, so a console
+        command, APN change or ping can interleave between poll commands
+        instead of waiting for the whole cycle. The cycle stops at the first
+        timeout so an unresponsive modem is not asked for every command.
         """
         steps = [
             ("AT+CSQ", self._parse_csq),
@@ -916,7 +934,10 @@ class SerialManager:
         for cmd, parser in steps:
             if not self.running:
                 return
-            resp = self._send_at_cmd_raw(cmd)
+            with self.lock:
+                if not self.running:
+                    return
+                resp = self._send_at_cmd_raw(cmd)
             if resp == "ERROR: Timeout":
                 self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
                 return
@@ -933,7 +954,8 @@ class SerialManager:
         """
         self._last_identity_check = time.monotonic()
         previous = self.state["sim_info"]["iccid"]
-        resp = self._send_at_cmd_raw("AT+QCCID")
+        with self.lock:
+            resp = self._send_at_cmd_raw("AT+QCCID")
         self._parse_iccid(resp)
         if "ERROR" in resp and "Timeout" not in resp:
             self.state["sim_info"]["iccid"] = "--"
@@ -945,8 +967,7 @@ class SerialManager:
         last_db_log = 0
         while self.running and self.is_connected and not self.is_demo:
             try:
-                with self.lock:
-                    self._poll_once()
+                self._poll_once()
 
                 self.state["last_update"] = time.time()
 
