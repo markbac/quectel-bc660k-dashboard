@@ -1,0 +1,17 @@
+{"cmd": "AT", "reply": "\r\nOK\r\n", "delay": 0.02}
+{"cmd": "ATE0", "reply": "\r\nOK\r\n", "delay": 0.02}
+{"cmd": "ATI", "reply": "\r\nQuectel_Ltd\r\nQuectel_BC660K-GL\r\nRevision: BC660KGLAAR01A05\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CGMR", "reply": "\r\nBC660KGLAAR01A05\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CGSN=1", "reply": "\r\n+CGSN: 001010000000001\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CPIN?", "reply": "\r\n+CPIN: READY\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+QCCID", "reply": "\r\n+QCCID: 89000000000000000001\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CIMI", "reply": "\r\n001010000000001\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CBC", "reply": "\r\n+CBC: 3600\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CPSMS?", "reply": "\r\n+CPSMS: 1,,,\"01000010\",\"00000010\"\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CEDRXS?", "reply": "\r\n+CEDRXS: 5,\"0010\"\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+QSCLK?", "reply": "\r\n+QSCLK: 1\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+COPS?", "reply": "\r\n+COPS: 0,0,\"Test Net\",9\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CEREG?", "reply": "\r\n+CEREG: 4,1,\"5F3A\",\"01A2B3C4\",9\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 14,99\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+CSQ", "reply": "\r\n+CSQ: 16,99\r\n\r\nOK\r\n", "delay": 0.02}
+{"cmd": "AT+QENG=0", "reply": "\r\n+QENG: 0,6300,0,321,\"01A2B3C4\",-95,-11,-85,12,8,\"5F3A\",0,23,0\r\n\r\nOK\r\n", "delay": 0.02}

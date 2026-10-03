@@ -27,6 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "or $QUECTEL_DASHBOARD_DB)")
     parser.add_argument("--retention-days", type=float, default=90,
                         help="Delete history older than this many days (0 keeps everything, default: 90)")
+    parser.add_argument("--record", metavar="FILE", default=None,
+                        help="Append every answered AT exchange to FILE (JSON Lines) with SIM and "
+                             "module identifiers redacted; replay it with --replay")
+    parser.add_argument("--replay", metavar="FILE", default=None,
+                        help="Play a recorded transcript back through a pseudo-terminal modem "
+                             "instead of using hardware (POSIX only)")
     parser.add_argument("--no-file-log", action="store_true",
                         help="Disable writing serial logs to disk file")
     return parser

@@ -64,6 +64,7 @@ class ATChannel:
         on_urc: Callable[[str], None] = _ignore,
         on_response: Callable[[], None] = _ignore,
         on_timeout: Callable[[], None] = _ignore,
+        on_exchange: Callable[[str, str, float], None] = _ignore,
     ):
         """Create a channel.
 
@@ -74,12 +75,15 @@ class ATChannel:
             on_urc: Called with every line of unsolicited output.
             on_response: Called when the modem answered a command.
             on_timeout: Called when it did not.
+            on_exchange: Called with ``(command, response, seconds)`` for every
+                answered command, for recording transcripts.
         """
         self._get_port = get_port
         self._log = log
         self._on_urc = on_urc
         self._on_response = on_response
         self._on_timeout = on_timeout
+        self._on_exchange = on_exchange
 
     @staticmethod
     def is_ok(resp: str) -> bool:
@@ -217,6 +221,7 @@ class ATChannel:
             self._on_response()
             response = self._split_urcs(cmd, response)
             self._log(f"RX< {response.strip()}", "RX")
+            self._on_exchange(cmd, response, time.time() - start)
             return response
         except Exception as e:  # serial I/O can fail in many platform specific ways
             self._log(f"[SERIAL IO ERROR] TX/RX failure on {cmd.strip()}: {e}", "ERROR")
