@@ -16,22 +16,23 @@ A large reliability, security and feature release. Several changes are not backw
 
 ### Fixed
 
+- Starting without py-logkit installed, or with a leftover `pylogkit` folder in the way, now stops with a clear message instead of an `ImportError`. `run_dashboard.ps1` sets up a virtual environment, installs the requirements and starts the server on Windows (#107).
 - `--port auto` now finds a module in deep sleep: it sends `AT` up to three times, waiting 2.5 s after each, because a sleeping BC660K answers the first one with a blank line (#94).
 - A carrier scan that gets no answer from the module now shows why in the Available Carrier Networks panel instead of "Found 0 networks", keeps the previous result, and the panel shows elapsed time and says a scan can take up to 3 minutes (#93).
 - Dashboard layout: a missing `</section>` made every row after System Diagnostics nest inside the hardware row, which stretched cards and left empty space. Rows now lay out as intended, the PSM and ping cards are styled and side by side, the log console is taller and resizable, CID 0 is no longer shown as 1, the console no longer shows `[TX] TX>`, and old bare PLMN codes in the history table are labelled like new ones (#95).
-- `tools/cops_scan_bench.py` checks whether `AT+COPS=?` answers while the module is deregistered, and restores the operator selection and sleep setting afterwards (#100).
 - `AT+COPS=?` can take about 5 minutes on a real board, so its timeout is now 10 minutes. Scan replies with empty operator names (`(1,"","","23415",9)`) were being dropped and are parsed. Operator names are looked up from the PLMN the network reports (`plmn.py`, for example `23415` is Vodafone UK) and anything unknown shows as `PLMN <code>`. The APN box is no longer pre-filled with an operator (#102).
-- The Available Carrier Networks card can deregister (`AT+COPS=2`), register automatically (`AT+COPS=0`) and register on a scanned network (`AT+COPS=1,2,"<plmn>",<act>`), through `POST /api/register` (#103).
 - Deadlock when opening a serial port failed (#41), undefined `_parse_ip()` in the APN code (#42), a front-end crash on missing elements (#43), the file-logging toggle (#45).
 - Hard-coded telemetry and SIM identifiers removed from the page (#44).
 - Late replies, stale input and unsolicited result codes no longer corrupt the next command (#48, #50, #66). Commands use the documented per-command timeouts (#49).
 - Wrong access-technology and registration labels (#52). PSM changes are checked and the granted timers read back (#53).
 - Only a previous instance of this dashboard is stopped when reclaiming a port (#47).
 - Modem and network strings are escaped before rendering (#55).
-- Found by running 2.0.0 on a real BC660K-GL: the ping result is read from its summary line rather than the first per-packet code (#82), network scans get 180 s and no longer make the module look dead (#83), the IP address is read from the board's own PDP context (#84), and MCC/MNC are derived from the numeric operator code (#85).
+- Found by running 2.0.0 on a real BC660K-GL: the ping result is read from its summary line rather than the first per-packet code (#82), network scans no longer make the module look dead (#83, and a scan timeout of 10 minutes after a real scan took about 5 minutes, #102), the IP address is read from the board's own PDP context (#84), and MCC/MNC are derived from the numeric operator code (#85).
 
 ### Added
 
+- `tools/cops_scan_bench.py` checks whether `AT+COPS=?` answers while the module is deregistered, and restores the operator selection and sleep setting afterwards (#100).
+- The Available Carrier Networks card can deregister (`AT+COPS=2`), register automatically (`AT+COPS=0`) and register on a scanned network (`AT+COPS=1,2,"<plmn>",<act>`), through `POST /api/register` (#103).
 - Modem state machine with PSM and deep-sleep detection, a start-up profile that reads the real modem state, requested versus granted PSM and eDRX values, and a reminder to press RESET (#61, #62, #63, #64).
 - Versioned database migrations, ICCID-scoped history, recording sessions, retention (default 90 days) and a lighter poll cycle (#57, #58, #59, #60, #67).
 - Serial port auto-detection, `--host`, `--http-port`, `--no-browser`, a `quectel-dashboard` command and a pinned Chart.js (#68, #69).
