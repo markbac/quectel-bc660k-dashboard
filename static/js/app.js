@@ -610,15 +610,18 @@ document.addEventListener("DOMContentLoaded", () => {
             neighbourTableBody.innerHTML = `<tr><td colspan="5" class="empty-state">${isCommunicated ? 'No neighbor cells detected yet' : 'Awaiting modem communication...'}</td></tr>`;
         } else {
             neighbourTableBody.innerHTML = neighbours.map(n => {
-                const delta = n.rsrp - sig.rsrp;
-                const relLabel = delta >= 0 ? `+${delta} dB` : `${delta} dB`;
-                const relClass = delta >= -6 ? "style='color:#10b981;font-weight:600;'" : "style='color:#8c9cb8;'";
+                const hasRsrp = typeof n.rsrp === "number" && typeof sig.rsrp === "number";
+                const delta = hasRsrp ? n.rsrp - sig.rsrp : null;
+                const relLabel = delta === null ? "--" : (delta >= 0 ? `+${delta} dB` : `${delta} dB`);
+                const relClass = delta !== null && delta >= -6 ? "style='color:#10b981;font-weight:600;'" : "style='color:#8c9cb8;'";
+                const rsrpText = typeof n.rsrp === "number" ? `${n.rsrp} dBm` : "--";
+                const rsrqText = typeof n.rsrq === "number" ? `${n.rsrq} dB` : "--";
                 return `
                     <tr>
                         <td><strong>${n.pci}</strong></td>
                         <td>${n.earfcn}</td>
-                        <td>${n.rsrp} dBm</td>
-                        <td>${n.rsrq} dB</td>
+                        <td>${rsrpText}</td>
+                        <td>${rsrqText}</td>
                         <td ${relClass}>${relLabel}</td>
                     </tr>
                 `;

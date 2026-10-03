@@ -64,3 +64,10 @@ test("temperature tile is hidden unless the module reports a value", () => {
     h.push(fullState);
     assert.ok(!h.document.getElementById("tempItem").classList.contains("hidden"));
 });
+
+test("neighbours without RSRP render placeholders instead of NaN", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, neighbour_cells: [{ pci: 7, earfcn: 6300, rsrp: null, rsrq: null }] });
+    const row = h.document.getElementById("neighbourTableBody").textContent;
+    assert.doesNotMatch(row, /NaN|null/);
+});
