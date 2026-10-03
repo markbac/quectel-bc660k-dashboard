@@ -11,6 +11,7 @@ import serial
 import serial.tools.list_ports
 
 import instance
+import timers
 from db_manager import DBManager
 from pylogkit import setup_logging
 
@@ -233,12 +234,20 @@ class SerialManager:
                 "enabled": False,
                 "t3412": "10100101",
                 "t3324": "00100100",
-                "status": "PSM Disabled"
+                "status": "PSM Disabled",
+                "granted": {"t3412": None, "t3324": None},
+                "requested_text": "--",
+                "granted_text": "--",
+                "mismatch": False
             },
             "edrx_info": {
                 "enabled": False,
                 "value": "0010",
-                "status": "eDRX Disabled"
+                "status": "eDRX Disabled",
+                "granted": None,
+                "requested_text": "--",
+                "granted_text": "--",
+                "mismatch": False
             },
             "last_ping_result": None,
             "last_dns_result": None,
@@ -376,6 +385,7 @@ class SerialManager:
                 "t3324": t3324,
                 "status": "PSM Enabled (Simulated)" if enabled else "PSM Disabled"
             }
+            self._update_psm_text()
             self.log("[PSM OK] Simulated PSM updated.", "INFO")
             self._notify("state", self.state)
             return "OK"
@@ -434,6 +444,7 @@ class SerialManager:
         if t3412 and t3324:
             info["t3412"], info["t3324"] = t3412, t3324
         info["status"] = "PSM Enabled" if enabled else "PSM Disabled"
+        self._update_psm_text()
 
     def set_edrx_config(self, enabled: bool, edrx_val: str = "0010") -> str:
         """Configure eDRX (Extended Discontinuous Reception) on Quectel BC660K."""
@@ -1023,10 +1034,14 @@ class SerialManager:
             self.is_ok(self._send_at_cmd_raw(c)) for c in ("AT+QNBIOTEVENT=1,1", 'AT+QCFG="dsevent",1')
         )
 
+        # Extended registration reports include the timers the network granted
+        self._send_at_cmd_raw("AT+CEREG=4")
+
         # Power saving: read what the module is configured to do
         self._parse_cpsms(self._send_at_cmd_raw("AT+CPSMS?"))
         self._parse_cedrxs(self._send_at_cmd_raw("AT+CEDRXS?"))
         self._parse_qsclk(self._send_at_cmd_raw("AT+QSCLK?"))
+        self._parse_cedrxrdp(self._send_at_cmd_raw("AT+CEDRXRDP"))
 
         # Packet domain
         self._parse_cgdcont(self._send_at_cmd_raw("AT+CGDCONT?"))
@@ -1090,6 +1105,8 @@ class SerialManager:
         previous = self.state["sim_info"]["iccid"]
         with self.lock:
             resp = self._send_at_cmd_raw("AT+QCCID")
+            if self.state["edrx_info"].get("enabled"):
+                self._parse_cedrxrdp(self._send_at_cmd_raw("AT+CEDRXRDP"))
         self._parse_iccid(resp)
         if "ERROR" in resp and "Timeout" not in resp:
             self.state["sim_info"]["iccid"] = "--"
@@ -1221,6 +1238,49 @@ class SerialManager:
             if line and line != "OK" and not line.startswith(("AT", "+", "ERROR")):
                 self.state["system_info"]["firmware"] = line.split(":", 1)[-1].strip()
                 return
+
+    def _update_psm_text(self):
+        """Refresh the human readable requested/granted PSM timers and the mismatch flag."""
+        info = self.state["psm_info"]
+        granted = info.setdefault("granted", {"t3412": None, "t3324": None})
+
+        def describe(t3412, t3324):
+            return (
+                f"T3412 {timers.format_duration(timers.decode_t3412(t3412))}, "
+                f"T3324 {timers.format_duration(timers.decode_t3324(t3324))}"
+            )
+
+        info["requested_text"] = describe(info["t3412"], info["t3324"]) if info.get("enabled") else "PSM off"
+        if granted["t3412"] and granted["t3324"]:
+            info["granted_text"] = describe(granted["t3412"], granted["t3324"])
+            info["mismatch"] = bool(info.get("enabled")) and (
+                timers.decode_t3412(granted["t3412"]) != timers.decode_t3412(info["t3412"])
+                or timers.decode_t3324(granted["t3324"]) != timers.decode_t3324(info["t3324"])
+            )
+        else:
+            info["granted_text"] = "Not reported"
+            info["mismatch"] = False
+
+    def _parse_cedrxrdp(self, resp: str):
+        """Store the network-granted eDRX cycle from ``AT+CEDRXRDP``.
+
+        ``+CEDRXRDP: <AcT>,"<requested>","<granted>","<paging time window>"``
+        """
+        match = re.search(r'\+CEDRXRDP:\s*\d+,\s*"([01]{4})"\s*,\s*"([01]{4})"', resp)
+        info = self.state["edrx_info"]
+        if match:
+            requested, granted = match.groups()
+            cycle = timers.decode_edrx_cycle(granted)
+            info["granted"] = granted
+            info["granted_text"] = f"{cycle:g} s cycle" if cycle else granted
+            info["requested_text"] = (
+                f"{timers.decode_edrx_cycle(requested):g} s cycle" if timers.decode_edrx_cycle(requested) else requested
+            )
+            info["mismatch"] = granted != requested
+        elif self.is_ok(resp):
+            info["granted"] = None
+            info["granted_text"] = "Not reported"
+            info["mismatch"] = False
 
     def _parse_cedrxs(self, resp: str):
         """Update ``edrx_info`` from an ``AT+CEDRXS?`` read-back.
@@ -1394,6 +1454,8 @@ class SerialManager:
                 self.last_cereg_stat = stat_str
                 self.state["connectivity_status"] = f"Network: {stat_str}"
 
+            self._parse_cereg_granted(resp)
+
             if match.group(2) and match.group(3):
                 tac_hex = match.group(2)
                 cell_id_hex = match.group(3)
@@ -1409,6 +1471,20 @@ class SerialManager:
                     "cell_id": cell_id_hex,
                     "cell_id_dec": cell_id_dec
                 })
+
+    def _parse_cereg_granted(self, resp: str):
+        """Read the granted timers from an extended ``+CEREG`` (``<n>`` = 4) response.
+
+        ``+CEREG: 4,<stat>,<tac>,<ci>,<AcT>,<cause_type>,<reject_cause>,"<Active-Time>","<Periodic-TAU>"``
+        """
+        line = re.search(r"\+CEREG:[^\r\n]*", resp)
+        if not line:
+            return
+        fields = [f.strip().strip('"') for f in line.group(0).split(",")]
+        if len(fields) >= 9 and all(re.fullmatch(r"[01]{8}", f) for f in fields[7:9]):
+            granted = self.state["psm_info"].setdefault("granted", {})
+            granted["t3324"], granted["t3412"] = fields[7], fields[8]
+            self._update_psm_text()
 
     def _parse_cops_scan(self, resp: str) -> List[Dict[str, Any]]:
         status_map = {0: "Unknown", 1: "Available", 2: "Current", 3: "Forbidden"}

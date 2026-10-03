@@ -107,3 +107,13 @@ test("enabling PSM asks for confirmation and warns about the UART", async () => 
     assert.match(message, /stop responding on the UART/);
     assert.ok(!h.fetches.some((u) => u.includes("/api/psm")), "declining must not call the API");
 });
+
+test("requested and granted PSM values are shown side by side, with a mismatch flag", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, psm_info: { enabled: true, status: "PSM Enabled", requested_text: "T3412 5 min, T3324 4 min",
+        granted_text: "T3412 1 h, T3324 6 s", mismatch: true } });
+    assert.strictEqual(h.text("psmRequestedVal"), "T3412 5 min, T3324 4 min");
+    assert.match(h.text("psmGrantedVal"), /T3412 1 h, T3324 6 s \(differs from request\)/);
+    h.push({ ...fullState, psm_info: { enabled: true, status: "PSM Enabled", requested_text: "a", granted_text: "a", mismatch: false } });
+    assert.strictEqual(h.text("psmGrantedVal"), "a");
+});
