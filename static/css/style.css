@@ -459,7 +459,8 @@ select:focus {
 }
 
 .form-grid input,
-.ping-card .input-with-button input {
+.ping-card .input-with-button input,
+.ping-timeout input {
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border-color);
     color: var(--text-main);

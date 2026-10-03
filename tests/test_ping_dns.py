@@ -29,7 +29,7 @@ def modem(manager):
 
 def test_ping_reads_the_result_that_arrives_after_ok(manager, modem):
     """Regression test for #20: the code used to stop at the first OK."""
-    m = modem({'AT+QPING=0,"8.8.8.8",4,2': [(0.0, "\r\nOK\r\n"), (0.4, PING_OK)]})
+    m = modem({'AT+QPING=0,"8.8.8.8",20,2': [(0.0, "\r\nOK\r\n"), (0.4, PING_OK)]})
 
     res = manager.run_ping_benchmark("8.8.8.8", 2)
 
@@ -37,7 +37,7 @@ def test_ping_reads_the_result_that_arrives_after_ok(manager, modem):
     assert (res["sent"], res["received"], res["lost"]) == (2, 2, 0)
     assert (res["min_rtt"], res["max_rtt"], res["avg_rtt"]) == (298, 310, 304)
     assert res["loss_pct"] == 0.0
-    assert m.received == ['AT+QPING=0,"8.8.8.8",4,2']
+    assert m.received == ['AT+QPING=0,"8.8.8.8",20,2']
 
 
 def test_ping_without_a_result_is_a_timeout_not_total_loss(manager, monkeypatch):
@@ -58,7 +58,7 @@ def test_ping_count_is_clamped_to_the_documented_range(manager, monkeypatch):
     manager.run_ping_benchmark("example.com", 99)
     cmd, timeout = seen[0]
     assert cmd.endswith(",10")
-    assert timeout == 10 * 4 + 5
+    assert timeout == 10 * 20 + 5
 
 
 # Reply of a real BC660K-GL when no echo came back (3 October 2026).
@@ -73,7 +73,7 @@ PING_ALL_LOST = (
 
 def test_per_packet_error_codes_do_not_end_the_wait(manager, modem):
     """Regression test for #82: the first bare code used to be taken as the result."""
-    m = modem({'AT+QPING=0,"8.8.8.8",4,4': [
+    m = modem({'AT+QPING=0,"8.8.8.8",20,4': [
         (0.0, "\r\nOK\r\n"),
         (0.2, "\r\n+QPING: 569\r\n"),
         (0.2, "\r\n+QPING: 569\r\n"),
@@ -88,7 +88,7 @@ def test_per_packet_error_codes_do_not_end_the_wait(manager, modem):
     assert (res["sent"], res["received"], res["lost"]) == (4, 0, 4)
     assert res["loss_pct"] == 100.0
     assert res["avg_rtt"] is None
-    assert m.received == ['AT+QPING=0,"8.8.8.8",4,4']
+    assert m.received == ['AT+QPING=0,"8.8.8.8",20,4']
 
 
 def test_all_lost_seven_field_summary_reports_no_round_trip_times(manager):
@@ -130,3 +130,22 @@ def test_dns_error_code_ends_the_wait(manager, modem):
     assert res["status"] == "Error 565"
     assert res["resolved_ip"] is None
     assert time.time() - start < 5
+
+
+def test_ping_timeout_defaults_to_twenty_seconds_and_scales_the_wait(manager, monkeypatch):
+    """Real board: a 4 s timeout failed every packet (#111)."""
+    seen = []
+    monkeypatch.setattr(manager, "_send_at_cmd_raw",
+                        lambda cmd, timeout_sec=None, wait_for=None: seen.append((cmd, timeout_sec)) or "")
+    manager.run_ping_benchmark("8.8.8.8", 4)
+    assert seen[0] == ('AT+QPING=0,"8.8.8.8",20,4', 4 * 20 + 5.0)
+
+
+def test_ping_timeout_is_configurable_and_clamped(manager, monkeypatch):
+    seen = []
+    monkeypatch.setattr(manager, "_send_at_cmd_raw",
+                        lambda cmd, timeout_sec=None, wait_for=None: seen.append(cmd) or "")
+    manager.run_ping_benchmark("8.8.8.8", 1, timeout=7)
+    manager.run_ping_benchmark("8.8.8.8", 1, timeout=0)
+    manager.run_ping_benchmark("8.8.8.8", 1, timeout=9999)
+    assert [c.split(",")[2] for c in seen] == ["7", "1", "255"]
