@@ -139,3 +139,38 @@ test("a failed scan shows its reason and clears on the next state", () => {
     h.push({ ...fullState, scan_error: null });
     assert.ok(box.classList.contains("hidden"));
 });
+
+test("CID 0 is shown as 0, not replaced by 1 (#95)", () => {
+    const h = loadDashboard();
+    h.push({ ...fullState, apn_info: { ...fullState.apn_info, pdp_cid: 0 } });
+    assert.match(h.text("pdpTypeVal"), /CID: 0\)/);
+});
+
+test("console lines do not repeat the direction prefix (#95)", () => {
+    const h = loadDashboard();
+    h.socket.onmessage({ data: JSON.stringify({ type: "log", data: { timestamp: "10:00:00", direction: "TX", text: "TX> AT+CSQ" } }) });
+    const lines = h.document.querySelectorAll(".log-line");
+    const line = lines[lines.length - 1].textContent;
+    assert.match(line, /\[TX\] AT\+CSQ/);
+    assert.doesNotMatch(line, /TX> /);
+});
+
+test("layout rules exist for the rows that had none (#95)", () => {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const css = fs.readFileSync(path.join(__dirname, "..", "..", "static", "css", "style.css"), "utf8");
+    for (const selector of [".apn-row", ".form-grid", ".form-grid input"]) {
+        assert.ok(css.includes(selector + " {") || css.includes(selector + ",\n"), selector);
+    }
+});
+
+test("history shows bare PLMN codes and labelled ones alike (#95)", async () => {
+    const mk = (operator) => ({ timestamp: "t", rsrp: -90, rsrq: -10, rssi: -80, sinr: 5,
+        quality_label: "Good", operator, cell_id: "1", temperature: null, voltage: 3600 });
+    const h = loadDashboard({ history: [mk("23415"), mk("PLMN 23415"), mk("Example Net")] });
+    h.push(fullState);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const text = h.document.getElementById("historyTableBody").textContent;
+    assert.strictEqual((text.match(/PLMN 23415/g) || []).length, 2);
+    assert.ok(!/PLMN PLMN/.test(text));
+});
