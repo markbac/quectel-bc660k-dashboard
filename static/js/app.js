@@ -340,11 +340,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 const data = await res.json();
                 if (res.ok && data.result) {
                     const r = data.result;
-                    if (pingRttVal) pingRttVal.textContent = `${r.avg_rtt} ms`;
-                    if (pingLossVal) pingLossVal.textContent = `${r.loss_pct}%`;
+                    const hasResult = r.loss_pct !== null && r.loss_pct !== undefined;
+                    if (pingRttVal) pingRttVal.textContent = r.avg_rtt !== null && r.avg_rtt !== undefined ? `${r.avg_rtt} ms` : "--";
+                    if (pingLossVal) pingLossVal.textContent = hasResult ? `${r.loss_pct}%` : "--";
                     if (pingStatusBadge) {
                         pingStatusBadge.textContent = r.status || "Completed";
-                        pingStatusBadge.className = r.loss_pct < 50 ? "badge badge-good" : "badge badge-danger";
+                        pingStatusBadge.className = hasResult && r.loss_pct < 50 ? "badge badge-good" : "badge badge-danger";
                     }
                 } else {
                     alert(`Ping failed: ${data.detail}`);
