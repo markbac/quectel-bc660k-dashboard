@@ -18,3 +18,6 @@ dashboard.pid
 *.db-shm
 *.sqlite
 *.sqlite3
+*.egg-info/
+build/
+dist/
