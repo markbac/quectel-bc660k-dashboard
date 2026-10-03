@@ -12,36 +12,12 @@ import serial.tools.list_ports
 
 import instance
 import timers
+from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
 from pylogkit import setup_logging
 
 __version__ = "1.2.0"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
-
-# Maximum response times from the BC660K-GL AT Commands Manual V1.3, plus a
-# margin. Matched by prefix, first match wins, on the upper-cased command.
-AT_TIMEOUTS = (
-    ("AT+CGATT=", 70.0),
-    ("AT+COPS=?", 35.0),
-    ("AT+QENG", 15.0),
-    ("AT+CSQ", 5.0),
-    ("AT+CESQ", 5.0),
-    ("AT+CGPADDR", 5.0),
-    ("AT+CGMR", 5.0),
-    ("AT+CGSN", 5.0),
-    ("ATI", 5.0),
-)
-DEFAULT_AT_TIMEOUT = 5.0
-
-
-def timeout_for(cmd: str, default: float = DEFAULT_AT_TIMEOUT) -> float:
-    """Return the response timeout in seconds for an AT command."""
-    normalised = cmd.strip().upper().replace(" ", "")
-    for prefix, seconds in AT_TIMEOUTS:
-        if normalised.startswith(prefix):
-            return seconds
-    return default
-
 
 # Access technology values of +COPS (3GPP TS 27.007, as listed in the BC660K-GL manual).
 COPS_ACT_NAMES = {
@@ -133,6 +109,13 @@ class SerialManager:
         self.is_demo: bool = False
 
         self.lock = threading.Lock()
+        self.channel = ATChannel(
+            get_port=lambda: self.ser,
+            log=self.log,
+            on_urc=self._handle_urc,
+            on_response=self._on_channel_response,
+            on_timeout=self._on_channel_timeout,
+        )
         self.scan_lock = threading.Lock()
 
         self.poll_thread: Optional[threading.Thread] = None
@@ -419,10 +402,7 @@ class SerialManager:
             self._notify("state", self.state)
             return resp
 
-    @staticmethod
-    def is_ok(resp: str) -> bool:
-        """True when a response contains a final ``OK`` line."""
-        return bool(re.search(r"(?m)^OK\s*$", resp))
+    is_ok = staticmethod(ATChannel.is_ok)
 
     def _parse_cpsms(self, resp: str, requested=None):
         """Update ``psm_info`` from an ``AT+CPSMS?`` read-back.
@@ -783,11 +763,6 @@ class SerialManager:
         self.state["connectivity_status"] = "Disconnected"
         self._notify("state", self.state)
 
-    # Lines that mark the end of a command response.
-    _FINAL_RESULT = re.compile(r"(?m)^(?:OK|ERROR|\+CME ERROR:.*|\+CMS ERROR:.*)\s*$")
-    # Unsolicited result codes that may be interleaved with a response.
-    _URC_PREFIXES = ("+CEREG", "+CSCON", "+QNBIOTEVENT", "+CGEV", "+CREG", "+CGREG", "+CPIN", "+PSM_EINT")
-
     def _set_modem_state(self, new_state: str):
         """Move the modem state machine, logging changes.
 
@@ -803,19 +778,10 @@ class SerialManager:
         if new_state in (MODEM_PSM, MODEM_DEEP_SLEEP, MODEM_UNRESPONSIVE):
             self._hardware_info_loaded = False
 
-    def _handle_urcs_in(self, text: str):
-        """Dispatch every line of ``text`` to the URC handler."""
-        for line in text.splitlines():
-            self._handle_urc(line)
-
     def _read_idle_urcs(self):
         """Read unsolicited output that arrived between commands (for example
         ``+QNBIOTEVENT`` when the module enters PSM). The caller holds the lock."""
-        if self.ser and self.ser.is_open:
-            text = self._drain_input()
-            if text.strip():
-                self.log(f"URC< {text.strip()}", "RX")
-                self._handle_urcs_in(text)
+        self.channel.read_idle()
 
     def _handle_urc(self, line: str):
         """React to an unsolicited result code. Currently +QNBIOTEVENT."""
@@ -842,124 +808,32 @@ class SerialManager:
                 return True
         return False
 
-    def _drain_input(self, quiet_sec: float = 0.0, max_sec: float = 0.0) -> str:
-        """Read and discard pending serial input.
-
-        With ``quiet_sec`` set, keep reading until the line has been quiet for
-        that long (or ``max_sec`` elapses), so a late reply cannot leak into
-        the next command.
-        """
-        discarded = ""
-        deadline = time.time() + max_sec
-        last_data = time.time()
-        while True:
-            if self.ser.in_waiting > 0:
-                discarded += self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
-                last_data = time.time()
-            elif quiet_sec <= 0 or time.time() - last_data >= quiet_sec or time.time() >= deadline:
-                break
-            else:
-                time.sleep(0.02)
-        return discarded
-
-    def _split_urcs(self, cmd: str, response: str) -> str:
-        """Remove unsolicited lines from a response and log them separately.
-
-        A line is kept when it belongs to the command itself, for example the
-        ``+CEREG:`` line returned for ``AT+CEREG?``.
-        """
-        own = re.match(r"AT(\+[A-Z0-9_]+)", cmd.upper())
-        own_prefix = own.group(1) if own else ""
-        kept = []
-        for line in response.splitlines(keepends=True):
-            stripped = line.strip()
-            is_urc = stripped.startswith(self._URC_PREFIXES) and not (
-                own_prefix and stripped.upper().startswith(own_prefix)
-            )
-            if is_urc:
-                self.log(f"URC< {stripped}", "RX")
-                self._handle_urc(stripped)
-            else:
-                kept.append(line)
-        return "".join(kept)
-
     def _send_at_cmd_raw(
         self,
         cmd: str,
         timeout_sec: Optional[float] = None,
         wait_for: Optional["re.Pattern[str]"] = None,
+        retries: int = 0,
     ) -> str:
-        """Send one AT command and return its response.
+        """Send one AT command through the channel. The caller holds ``self.lock``."""
+        return self.channel.send(cmd, timeout_sec=timeout_sec, wait_for=wait_for, retries=retries)
 
-        ``timeout_sec`` defaults to the documented maximum for the command
-        (see ``AT_TIMEOUTS``). Some commands (``AT+QPING``, ``AT+QIDNSGIP``)
-        answer ``OK`` first and deliver the result later as unsolicited
-        lines. For those, ``wait_for`` is a pattern that must also appear
-        before the response is considered complete; on timeout the partial
-        response is returned.
+    def _on_channel_response(self):
+        """The modem answered: it is alive and awake."""
+        if not self.state.get("hardware_communicated", False):
+            self.state["hardware_communicated"] = True
+            self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
+        self.state["modem_responding"] = True
+        self._wake_hint_shown = False
+        if self.state["modem_state"] != MODEM_DISCONNECTED:
+            self._set_modem_state(MODEM_AWAKE)
 
-        Pending input is discarded before sending so a reply that arrived
-        late for an earlier command is not mistaken for this one. After a
-        timeout the line is drained until quiet before returning.
-        """
-        if not self.ser or not self.ser.is_open:
-            return "ERROR: Port not open"
-
-        if timeout_sec is None:
-            timeout_sec = timeout_for(cmd)
-
-        if not cmd.endswith("\r\n"):
-            cmd_str = cmd + "\r\n"
-        else:
-            cmd_str = cmd
-
-        self.log(f"TX> {cmd_str.strip()}", "TX")
-        try:
-            stale = self._drain_input()
-            if stale.strip():
-                self.log(f"[STALE] Discarded unread output before '{cmd.strip()}': {stale.strip()!r}", "WARNING")
-                self._handle_urcs_in(stale)
-
-            self.ser.write(cmd_str.encode("ascii", errors="ignore"))
-            response = ""
-            start = time.time()
-            timed_out = True
-
-            while time.time() - start < timeout_sec:
-                if self.ser.in_waiting > 0:
-                    response += self.ser.read(self.ser.in_waiting).decode("ascii", errors="replace")
-                    if self._FINAL_RESULT.search(response) and (wait_for is None or wait_for.search(response)):
-                        timed_out = False
-                        break
-                else:
-                    time.sleep(0.02)
-
-            if timed_out:
-                late = self._drain_input(quiet_sec=0.3, max_sec=1.0)
-                if late.strip():
-                    self.log(f"[LATE] Discarded late output after timeout: {late.strip()!r}", "WARNING")
-                if not response:
-                    self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
-                    self.state["modem_responding"] = False
-                    if self.state["modem_state"] == MODEM_AWAKE:
-                        self._set_modem_state(MODEM_UNRESPONSIVE)
-                    self._show_wake_hint()
-                    return "ERROR: Timeout"
-
-            if not self.state.get("hardware_communicated", False):
-                self.state["hardware_communicated"] = True
-                self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
-            self.state["modem_responding"] = True
-            self._wake_hint_shown = False
-            if self.state["modem_state"] != MODEM_DISCONNECTED:
-                self._set_modem_state(MODEM_AWAKE)
-
-            response = self._split_urcs(cmd, response)
-            self.log(f"RX< {response.strip()}", "RX")
-            return response
-        except Exception as e:
-            self.log(f"[SERIAL IO ERROR] TX/RX failure on {cmd.strip()}: {e}", "ERROR")
-            return f"ERROR: {e}"
+    def _on_channel_timeout(self):
+        """The modem stayed silent."""
+        self.state["modem_responding"] = False
+        if self.state["modem_state"] == MODEM_AWAKE:
+            self._set_modem_state(MODEM_UNRESPONSIVE)
+        self._show_wake_hint()
 
     def send_at_command(self, cmd: str) -> str:
         if self.is_demo:
@@ -1087,7 +961,7 @@ class SerialManager:
                 if not self.running:
                     return
                 resp = self._send_at_cmd_raw(cmd)
-            if resp == "ERROR: Timeout":
+            if resp == TIMEOUT_RESPONSE:
                 self.log(f"[POLL] '{cmd}' timed out, ending this cycle.", "WARNING")
                 return
             parser(resp)
