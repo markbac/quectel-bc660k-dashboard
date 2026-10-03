@@ -24,6 +24,8 @@ AT_TIMEOUTS = (
     # The manual says 35 s, but a real BC660K-GL took about 300 s to answer a
     # scan (and stayed silent for 180 s while registered), so allow ten minutes.
     ("AT+COPS=?", 600.0),
+    # Choosing or releasing an operator; the manual allows up to 180 s.
+    ("AT+COPS=", 180.0),
     ("AT+QENG", 15.0),
     ("AT+CSQ", 5.0),
     ("AT+CESQ", 5.0),

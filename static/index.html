@@ -552,9 +552,17 @@
                 <div class="card scanner-card">
                     <div class="card-header">
                         <span class="card-title"><i class="fa-solid fa-magnifying-glass-chart"></i> Available Carrier Networks</span>
-                        <button id="scanBtn" class="btn btn-sm btn-outline">
-                            <i class="fa-solid fa-radar"></i> Scan Networks (AT+COPS=?)
-                        </button>
+                        <div class="scanner-actions">
+                            <button id="deregisterBtn" class="btn btn-sm btn-outline" title="AT+COPS=2: leave the network">
+                                <i class="fa-solid fa-plug-circle-xmark"></i> Deregister
+                            </button>
+                            <button id="registerAutoBtn" class="btn btn-sm btn-outline" title="AT+COPS=0: choose a network automatically">
+                                <i class="fa-solid fa-plug-circle-check"></i> Register (auto)
+                            </button>
+                            <button id="scanBtn" class="btn btn-sm btn-outline">
+                                <i class="fa-solid fa-radar"></i> Scan Networks (AT+COPS=?)
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body table-responsive">
                         <div id="scanLoading" class="scan-loading hidden">
@@ -562,6 +570,7 @@
                             <span>Scanning for available networks. This can take about 5 minutes. <span id="scanElapsed"></span></span>
                         </div>
                         <div id="scanError" class="scan-error hidden" role="alert"></div>
+                        <div id="registrationMsg" class="scan-note hidden" role="status"></div>
                         <table class="data-table" id="networksTable">
                             <thead>
                                 <tr>
@@ -569,11 +578,12 @@
                                     <th>Operator Name</th>
                                     <th>PLMN</th>
                                     <th>Access Tech</th>
+                                    <th></th>
                                 </tr>
                             </thead>
                             <tbody id="networksTableBody">
                                 <tr>
-                                    <td colspan="4" class="empty-state">Auto-scanning visible networks on connection...</td>
+                                    <td colspan="5" class="empty-state">Auto-scanning visible networks on connection...</td>
                                 </tr>
                             </tbody>
                         </table>
