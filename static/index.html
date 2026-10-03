@@ -425,6 +425,27 @@
                 </div>
             </section>
 
+            <!-- Serving cell map -->
+            <section class="map-row">
+                <div class="card map-card">
+                    <div class="card-header">
+                        <span class="card-title"><i class="fa-solid fa-map-location-dot"></i> Serving Cell Location</span>
+                        <button id="locateCellBtn" class="btn btn-sm btn-outline">
+                            <i class="fa-solid fa-location-crosshairs"></i> Locate cell
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <p id="cellMapNote" class="alerts-note">
+                            Looks the serving cell up on OpenCellID and shows it on OpenStreetMap. This sends the cell's
+                            MCC, MNC, TAC and cell id to opencellid.org and loads map tiles from openstreetmap.org, so it
+                            only runs when you press the button. Needs an OpenCellID API key in
+                            <code>QUECTEL_OPENCELLID_KEY</code>.
+                        </p>
+                        <div id="cellMap" class="cell-map" hidden></div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Row 4: SQLite Historical Data Analytics -->
             <section class="history-row">
                 <div class="card history-card">

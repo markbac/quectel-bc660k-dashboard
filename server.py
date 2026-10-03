@@ -20,6 +20,7 @@ import instance
 from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
+from cell_location import CellLocator, CellLookupError, NoApiKey, CellNotFound
 from exporter import ExportConfig, Exporter
 from modem_replay import TranscriptModem
 from port_detect import detect_at_port
@@ -96,6 +97,9 @@ class PingRequest(BaseModel):
 class DNSRequest(BaseModel):
     domain: str = "leshan.eclipseprojects.io"
 
+cell_locator = CellLocator()
+
+
 class ExportRequest(BaseModel):
     enabled: bool = False
     interval: int = 60
@@ -109,6 +113,24 @@ class ExportRequest(BaseModel):
     mqtt_tls: bool = False
 
 # --- REST Endpoints ---
+@app.get("/api/cell_location")
+def get_cell_location_status():
+    """Whether an OpenCellID key is configured (the key itself is never returned)."""
+    return {"configured": cell_locator.configured}
+
+@app.post("/api/cell_location")
+def locate_serving_cell():
+    """Look up the serving cell on OpenCellID. Sends its identity to that service."""
+    cell = manager.state["serving_cell"]
+    try:
+        return cell_locator.locate(cell.get("mcc"), cell.get("mnc"), cell.get("tac_dec"), cell.get("cell_id_dec"))
+    except NoApiKey as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except CellNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except CellLookupError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
 @app.get("/api/export")
 def get_export():
     """Remote export settings and delivery status (never any credentials)."""

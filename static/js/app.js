@@ -175,6 +175,83 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
+    // --- Serving cell map (Leaflet is loaded only when the button is pressed) ---
+    const LEAFLET_VERSION = "1.9.4";
+    const LEAFLET_ASSETS = {
+        js: { url: `https://cdn.jsdelivr.net/npm/leaflet@${LEAFLET_VERSION}/dist/leaflet.js`,
+              integrity: "sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" },
+        css: { url: `https://cdn.jsdelivr.net/npm/leaflet@${LEAFLET_VERSION}/dist/leaflet.css`,
+               integrity: "sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" },
+    };
+    const locateCellBtn = document.getElementById("locateCellBtn");
+    const cellMapEl = document.getElementById("cellMap");
+    const cellMapNote = document.getElementById("cellMapNote");
+    let leafletPromise = null;
+    let cellMap = null;
+    let cellLayer = null;
+
+    function loadLeaflet() {
+        if (window.L) return Promise.resolve(window.L);
+        if (!leafletPromise) {
+            leafletPromise = new Promise((resolve, reject) => {
+                const css = document.createElement("link");
+                css.rel = "stylesheet";
+                css.href = LEAFLET_ASSETS.css.url;
+                css.integrity = LEAFLET_ASSETS.css.integrity;
+                css.crossOrigin = "anonymous";
+                document.head.appendChild(css);
+                const script = document.createElement("script");
+                script.src = LEAFLET_ASSETS.js.url;
+                script.integrity = LEAFLET_ASSETS.js.integrity;
+                script.crossOrigin = "anonymous";
+                script.onload = () => resolve(window.L);
+                script.onerror = () => { leafletPromise = null; reject(new Error("Could not load the map library")); };
+                document.head.appendChild(script);
+            });
+        }
+        return leafletPromise;
+    }
+
+    function showCellOnMap(L, place) {
+        cellMapEl.hidden = false;
+        if (!cellMap) {
+            cellMap = L.map(cellMapEl);
+            L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+                maxZoom: 19,
+                attribution: "&copy; OpenStreetMap contributors",
+            }).addTo(cellMap);
+        }
+        if (cellLayer) cellLayer.remove();
+        const here = [place.lat, place.lon];
+        cellLayer = L.layerGroup([L.marker(here)]);
+        if (place.range) cellLayer.addLayer(L.circle(here, { radius: place.range }));
+        cellLayer.addTo(cellMap);
+        cellMap.setView(here, place.range && place.range > 3000 ? 12 : 14);
+        cellMap.invalidateSize();
+    }
+
+    locateCellBtn.addEventListener("click", async () => {
+        locateCellBtn.disabled = true;
+        cellMapNote.textContent = "Looking up the serving cell...";
+        try {
+            const res = await fetch("/api/cell_location", { method: "POST" });
+            const data = await res.json();
+            if (!res.ok) {
+                cellMapNote.textContent = data.detail || "Lookup failed";
+                return;
+            }
+            const L = await loadLeaflet();
+            showCellOnMap(L, data);
+            cellMapNote.textContent = data.range
+                ? `Approximate position of the serving cell (accuracy about ${data.range} m), from OpenCellID.`
+                : "Approximate position of the serving cell, from OpenCellID.";
+        } catch (err) {
+            cellMapNote.textContent = `Lookup failed: ${err.message}`;
+        } finally {
+            locateCellBtn.disabled = false;
+        }
+    });
+
     // --- Remote export (MQTT / webhook) ---
     const exportDialog = document.getElementById("exportDialog");
     const exportFields = {
