@@ -93,6 +93,88 @@ document.addEventListener("DOMContentLoaded", () => {
         rsrq: []
     };
 
+    // --- Signal alerts (rules live in alerts.js) ---
+    const ALERT_STORAGE_KEY = "quectel-dashboard-alerts";
+    const alertEvaluator = AlertRules.createEvaluator();
+    let alertSettings = loadAlertSettings();
+
+    function loadAlertSettings() {
+        try {
+            return AlertRules.sanitizeSettings(JSON.parse(localStorage.getItem(ALERT_STORAGE_KEY)));
+        } catch (err) {
+            return AlertRules.sanitizeSettings(null);
+        }
+    }
+
+    function saveAlertSettings(settings) {
+        try {
+            localStorage.setItem(ALERT_STORAGE_KEY, JSON.stringify(settings));
+        } catch (err) {
+            console.warn("Could not store alert settings:", err);
+        }
+    }
+
+    function beep() {
+        try {
+            const audio = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audio.createOscillator();
+            osc.frequency.value = 880;
+            osc.connect(audio.destination);
+            osc.start();
+            osc.stop(audio.currentTime + 0.2);
+            osc.onended = () => audio.close();
+        } catch (err) {
+            console.warn("Beep unavailable:", err);
+        }
+    }
+
+    function handleAlertEvent(event) {
+        const timestamp = new Date().toLocaleTimeString([], { hour12: false });
+        const direction = event.severity === "info" ? "RECOVERY" : event.severity === "critical" ? "CRITICAL" : "ALERT";
+        appendLog({ timestamp, direction, text: event.message });
+        if (event.severity === "info") return;
+        if (alertSettings.beep) beep();
+        if (alertSettings.desktop && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            new Notification("Quectel dashboard", { body: event.message });
+        }
+    }
+
+    const alertsDialog = document.getElementById("alertsDialog");
+    const alertFields = {
+        enabled: document.getElementById("alertEnabled"),
+        rsrpMin: document.getElementById("alertRsrpMin"),
+        rsrqMin: document.getElementById("alertRsrqMin"),
+        notifyPoor: document.getElementById("alertPoor"),
+        notifyHandover: document.getElementById("alertHandover"),
+        notifyDisconnect: document.getElementById("alertDisconnect"),
+        desktop: document.getElementById("alertDesktop"),
+        beep: document.getElementById("alertBeep"),
+    };
+
+    function fillAlertForm() {
+        Object.entries(alertFields).forEach(([key, input]) => {
+            if (input.type === "checkbox") input.checked = alertSettings[key];
+            else input.value = alertSettings[key];
+        });
+    }
+
+    document.getElementById("alertsBtn").addEventListener("click", () => {
+        fillAlertForm();
+        alertsDialog.showModal();
+    });
+    document.getElementById("alertsCancel").addEventListener("click", () => alertsDialog.close());
+    document.getElementById("alertsForm").addEventListener("submit", () => {
+        const raw = {};
+        Object.entries(alertFields).forEach(([key, input]) => {
+            raw[key] = input.type === "checkbox" ? input.checked : input.value;
+        });
+        alertSettings = AlertRules.sanitizeSettings(raw);
+        saveAlertSettings(alertSettings);
+        if (alertSettings.desktop && typeof Notification !== "undefined" && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    });
+
     // Chart window: "live" plots the last 25 polls as they arrive; the other
     // windows plot a downsampled series fetched from the database on demand.
     const chartWindowSelect = document.getElementById("chartWindow");
@@ -800,6 +882,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 chart.update();
             }
         }
+
+        alertEvaluator.evaluate(state, alertSettings).forEach(handleAlertEvent);
 
         // History follows the SIM: when the ICCID changes, drop the live
         // chart and reload the table for the new SIM.

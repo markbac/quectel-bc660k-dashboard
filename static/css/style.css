@@ -702,6 +702,9 @@ select:focus {
 .log-rx { color: var(--success); }
 .log-info { color: var(--text-muted); }
 .log-error { color: var(--danger); }
+.log-alert { color: var(--warning); font-weight: 600; background: rgba(245, 158, 11, 0.08); }
+.log-critical { color: var(--danger); font-weight: 600; background: rgba(239, 68, 68, 0.1); }
+.log-recovery { color: var(--success); }
 
 .terminal-input-bar {
     display: flex;
@@ -738,3 +741,25 @@ select:focus {
     padding: 2px 6px;
     font-size: 0.75rem;
 }
+
+.alerts-dialog {
+    background: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--border-accent);
+    border-radius: 12px;
+    padding: 20px 24px;
+    min-width: 320px;
+}
+.alerts-dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+.alerts-dialog h2 { font-size: 1.1rem; margin-bottom: 4px; }
+.alerts-note { color: var(--text-muted); font-size: 0.8rem; margin-bottom: 12px; }
+.alerts-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 0.9rem; }
+.alerts-row input[type="number"] {
+    width: 5rem;
+    background: rgba(255, 255, 255, 0.05);
+    color: inherit;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 2px 6px;
+}
+.alerts-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
