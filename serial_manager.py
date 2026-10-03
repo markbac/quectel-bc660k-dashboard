@@ -1386,13 +1386,24 @@ class SerialManager:
             self.state["neighbour_cells"] = info.neighbours
 
     def _parse_cops_query(self, resp: str):
+        """Parse ``+COPS: <mode>,<format>,"<oper>",<AcT>``.
+
+        With the numeric format (2), which a real BC660K-GL uses, ``<oper>`` is
+        the PLMN (MCC followed by a 2 or 3 digit MNC). It is shown as a PLMN and
+        also stored as ``mcc``/``mnc``, which ``AT+QENG=0`` does not report.
+        """
         match = re.search(r'\+COPS:\s*\d+,\d+,"([^"]+)"', resp)
-        if match:
-            op = match.group(1)
-            if op != self.last_cops_op:
-                self.log(f"[NETWORK OPERATOR] Carrier: {op} (Previous: {self.last_cops_op})", "INFO")
-                self.last_cops_op = op
-            self.state["serving_cell"]["operator"] = op
+        if not match:
+            return
+        op = match.group(1)
+        cell = self.state["serving_cell"]
+        if re.fullmatch(r"\d{5,6}", op):
+            cell["mcc"], cell["mnc"] = op[:3], op[3:]
+            op = f"PLMN {op}"
+        if op != self.last_cops_op:
+            self.log(f"[NETWORK OPERATOR] Carrier: {op} (Previous: {self.last_cops_op})", "INFO")
+            self.last_cops_op = op
+        cell["operator"] = op
 
     def _parse_cereg_query(self, resp: str):
         """Parse the response to ``AT+CEREG?`` (``+CEREG: <n>,<stat>[,<tac>,<ci>,...]``)."""
