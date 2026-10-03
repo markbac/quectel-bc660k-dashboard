@@ -15,6 +15,7 @@ import timers
 from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
 from pylogkit import setup_logging
+from transcript import TranscriptRecorder
 
 __version__ = "1.2.0"
 LOG_FILE_PATH = os.path.join(os.path.dirname(__file__), "dashboard_serial.log")
@@ -118,7 +119,9 @@ class SerialManager:
             on_urc=self._handle_urc,
             on_response=self._on_channel_response,
             on_timeout=self._on_channel_timeout,
+            on_exchange=self._record_exchange,
         )
+        self.recorder: Optional[TranscriptRecorder] = None
         self.scan_lock = threading.Lock()
 
         self.poll_thread: Optional[threading.Thread] = None
@@ -843,6 +846,11 @@ class SerialManager:
         self._wake_hint_shown = False
         if self.state["modem_state"] != MODEM_DISCONNECTED:
             self._set_modem_state(MODEM_AWAKE)
+
+    def _record_exchange(self, cmd: str, response: str, seconds: float):
+        """Append an answered command to the transcript, if one is being recorded."""
+        if self.recorder is not None:
+            self.recorder.record(cmd, response, seconds)
 
     def _on_channel_timeout(self):
         """The modem stayed silent."""

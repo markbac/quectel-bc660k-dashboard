@@ -21,7 +21,9 @@ from db_manager import SchemaTooNewError
 from security import LocalOnlyMiddleware
 from serial_manager import SerialManager
 from pylogkit import setup_logging
+from modem_replay import TranscriptModem
 from port_detect import detect_at_port
+from transcript import TranscriptRecorder, load_transcript
 
 args = cli.parse_args()
 
@@ -310,10 +312,18 @@ def main() -> None:
     global loop
     setup_signal_handlers()
     instance.write_pid_file()
+    if args.record:
+        manager.recorder = TranscriptRecorder(args.record)
+        print(f"[STARTUP] Recording AT exchanges to {args.record} (identifiers redacted).")
 
     if args.demo:
         print("[STARTUP] Demo mode CLI flag '--demo' enabled. Starting simulator...")
         manager.enable_demo_mode()
+    elif args.replay:
+        modem = TranscriptModem(load_transcript(args.replay))
+        modem.start().close()
+        print(f"[STARTUP] Replaying {args.replay} on {modem.slave_name}...")
+        manager.connect(modem.slave_name, args.baud)
     elif args.port == "auto":
         print("[STARTUP] Probing serial ports for an AT modem...")
         found = detect_at_port(bauds=(args.baud,))

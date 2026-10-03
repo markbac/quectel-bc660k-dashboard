@@ -90,6 +90,12 @@ These are requests. The network decides the values actually granted, so the pane
 
 ---
 
+## 🎞️ Recording and Replaying a Modem
+
+`python server.py --port auto --record session.jsonl` appends every answered AT exchange to a JSON Lines file. ICCIDs, IMSIs and IMEIs are redacted as they are written (cell identities and locations are not, so review a recording before sharing it). `python server.py --replay session.jsonl` plays it back through a pseudo-terminal, so the real serial code path runs without hardware (POSIX only). The nth request for a command gets its nth recorded reply and the last reply repeats. `tests/transcripts/synthetic_attached.jsonl` is a hand-written transcript used by the tests; it is not a hardware capture.
+
+---
+
 ## 🧪 Running the Tests
 
 ```bash
