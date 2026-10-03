@@ -70,6 +70,23 @@ CEREG_STAT_NAMES = {
 DEMO_ICCID = "DEMO-SIMULATED-SIM"
 
 
+# Modem power/reachability states shown in the UI.
+MODEM_DISCONNECTED = "disconnected"
+MODEM_PROBING = "probing"
+MODEM_AWAKE = "awake"
+MODEM_PSM = "psm"
+MODEM_DEEP_SLEEP = "deep_sleep"
+MODEM_UNRESPONSIVE = "unresponsive"
+
+# +QNBIOTEVENT payload -> state it implies.
+NBIOT_EVENTS = {
+    "ENTER PSM": MODEM_PSM,
+    "EXIT PSM": MODEM_AWAKE,
+    "ENTER DEEPSLEEP": MODEM_DEEP_SLEEP,
+    "EXIT DEEPSLEEP": MODEM_AWAKE,
+}
+
+
 class SerialManager:
     VERSION = __version__
     IDENTITY_RECHECK_SECONDS = 60.0
@@ -160,6 +177,8 @@ class SerialManager:
             "mode": "DISCONNECTED",
             "hardware_communicated": False,
             "modem_responding": False,
+            "modem_state": MODEM_DISCONNECTED,
+            "sleep_events": False,
             "file_logging_enabled": self.file_logging_enabled,
             "telemetry_interval": self.telemetry_interval,
             "cops_scan_interval": self.cops_scan_interval,
@@ -360,6 +379,13 @@ class SerialManager:
             self.log("[PSM OK] Simulated PSM updated.", "INFO")
             self._notify("state", self.state)
             return "OK"
+
+        if enabled:
+            self.log(
+                "[PSM WARNING] Once PSM is active the module can stop responding on the UART after T3324 "
+                "expires. Press RESET on the board (or use the PSM_EINT wake line) to wake it.",
+                "WARNING",
+            )
 
         with self.lock:
             if enabled:
@@ -664,6 +690,7 @@ class SerialManager:
                 self.state["port"] = port
                 self.state["baudrate"] = baudrate
                 self.state["mode"] = "REAL"
+                self.state["modem_state"] = MODEM_PROBING
                 self.state["connectivity_status"] = "Connected - Serial Active"
                 self.running = True
                 self.log(f"[SUCCESS] Serial port {port} opened successfully @ {baudrate} baud.", "INFO")
@@ -750,6 +777,43 @@ class SerialManager:
     # Unsolicited result codes that may be interleaved with a response.
     _URC_PREFIXES = ("+CEREG", "+CSCON", "+QNBIOTEVENT", "+CGEV", "+CREG", "+CGREG", "+CPIN", "+PSM_EINT")
 
+    def _set_modem_state(self, new_state: str):
+        """Move the modem state machine, logging changes.
+
+        Leaving the awake state means the module may have restarted or lost
+        its settings (RESET, deep sleep), so the start-up profile is re-run
+        the next time it answers.
+        """
+        old = self.state.get("modem_state")
+        if new_state == old:
+            return
+        self.state["modem_state"] = new_state
+        self.log(f"[MODEM STATE] {old} -> {new_state}", "INFO")
+        if new_state in (MODEM_PSM, MODEM_DEEP_SLEEP, MODEM_UNRESPONSIVE):
+            self._hardware_info_loaded = False
+
+    def _handle_urcs_in(self, text: str):
+        """Dispatch every line of ``text`` to the URC handler."""
+        for line in text.splitlines():
+            self._handle_urc(line)
+
+    def _read_idle_urcs(self):
+        """Read unsolicited output that arrived between commands (for example
+        ``+QNBIOTEVENT`` when the module enters PSM). The caller holds the lock."""
+        if self.ser and self.ser.is_open:
+            text = self._drain_input()
+            if text.strip():
+                self.log(f"URC< {text.strip()}", "RX")
+                self._handle_urcs_in(text)
+
+    def _handle_urc(self, line: str):
+        """React to an unsolicited result code. Currently +QNBIOTEVENT."""
+        match = re.match(r'\+QNBIOTEVENT:\s*"([^"]+)"', line.strip())
+        if match:
+            implied = NBIOT_EVENTS.get(match.group(1).upper())
+            if implied:
+                self._set_modem_state(implied)
+
     def _show_wake_hint(self):
         """Tell the user, once per silence, how to wake the modem."""
         if not self._wake_hint_shown:
@@ -803,6 +867,7 @@ class SerialManager:
             )
             if is_urc:
                 self.log(f"URC< {stripped}", "RX")
+                self._handle_urc(stripped)
             else:
                 kept.append(line)
         return "".join(kept)
@@ -842,6 +907,7 @@ class SerialManager:
             stale = self._drain_input()
             if stale.strip():
                 self.log(f"[STALE] Discarded unread output before '{cmd.strip()}': {stale.strip()!r}", "WARNING")
+                self._handle_urcs_in(stale)
 
             self.ser.write(cmd_str.encode("ascii", errors="ignore"))
             response = ""
@@ -864,6 +930,8 @@ class SerialManager:
                 if not response:
                     self.log(f"[TIMEOUT] No response for '{cmd.strip()}' after {timeout_sec}s.", "ERROR")
                     self.state["modem_responding"] = False
+                    if self.state["modem_state"] == MODEM_AWAKE:
+                        self._set_modem_state(MODEM_UNRESPONSIVE)
                     self._show_wake_hint()
                     return "ERROR: Timeout"
 
@@ -872,6 +940,8 @@ class SerialManager:
                 self.log("[HARDWARE OK] Initial modem communication established.", "INFO")
             self.state["modem_responding"] = True
             self._wake_hint_shown = False
+            if self.state["modem_state"] != MODEM_DISCONNECTED:
+                self._set_modem_state(MODEM_AWAKE)
 
             response = self._split_urcs(cmd, response)
             self.log(f"RX< {response.strip()}", "RX")
@@ -948,6 +1018,11 @@ class SerialManager:
         self._parse_qtemp(self._send_at_cmd_raw("AT+QTEMP"))
         self._temp_supported = self.state["system_info"]["temperature"] is not None
 
+        # Ask the module to announce PSM and deep-sleep transitions, where supported
+        self.state["sleep_events"] = all(
+            self.is_ok(self._send_at_cmd_raw(c)) for c in ("AT+QNBIOTEVENT=1,1", 'AT+QCFG="dsevent",1')
+        )
+
         # Power saving: read what the module is configured to do
         self._parse_cpsms(self._send_at_cmd_raw("AT+CPSMS?"))
         self._parse_cedrxs(self._send_at_cmd_raw("AT+CEDRXS?"))
@@ -966,8 +1041,13 @@ class SerialManager:
         instead of waiting for the whole cycle. The cycle stops at the first
         timeout so an unresponsive modem is not asked for every command.
         """
+        with self.lock:
+            if self.running:
+                self._read_idle_urcs()
+
         if not self._hardware_info_loaded:
-            # Back off to a cheap probe until the modem answers.
+            # Silent, asleep or just restarted: back off to a cheap probe until
+            # the modem answers, then run the start-up profile again.
             with self.lock:
                 if not self.running or not self._probe_modem(tries=1):
                     return

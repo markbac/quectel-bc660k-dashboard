@@ -90,3 +90,20 @@ test("the PSM badge follows the state reported by the module", () => {
     h.push({ ...fullState, psm_info: { enabled: false, status: "PSM Disabled" } });
     assert.strictEqual(h.text("psmStatusBadge"), "PSM Disabled");
 });
+
+test("the status badge says when the modem is asleep", () => {
+    const h = loadDashboard();
+    h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: true, modem_state: "psm" });
+    assert.match(h.text("statusText"), /Modem asleep, PSM \(COM3\) - press RESET to wake it/);
+    h.push({ connected: true, mode: "REAL", port: "COM3", hardware_communicated: true, modem_state: "deep_sleep" });
+    assert.match(h.text("statusText"), /deep sleep/);
+});
+
+test("enabling PSM asks for confirmation and warns about the UART", async () => {
+    const h = loadDashboard();
+    let message = "";
+    h.window.confirm = (m) => { message = m; return false; };
+    h.document.getElementById("enablePsmBtn").click();
+    assert.match(message, /stop responding on the UART/);
+    assert.ok(!h.fetches.some((u) => u.includes("/api/psm")), "declining must not call the API");
+});
