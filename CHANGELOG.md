@@ -16,10 +16,7 @@
 - A carrier scan can no longer start twice or stay stuck on "scanning" after an error (#120). The demo simulator no longer stops silently on an error (#121).
 - RSRQ and RSSI bars are empty when there is no value, PCI 0 and EARFCN 0 are shown, and the log console keeps the newest 500 lines (#122, #123, #124).
 - The webhook bearer token is no longer sent to another host when the server redirects (#126).
-
-### Known issue
-
-- A stale `dashboard.pid` can make the dashboard terminate an unrelated process that reused the PID (#127).
+- A stale `dashboard.pid` no longer lets the dashboard terminate an unrelated process that reused the PID: the file records the process start time and is checked first (#127). This adds the `psutil` dependency.
 
 ## 2.0.0 - 2026-10-03
 

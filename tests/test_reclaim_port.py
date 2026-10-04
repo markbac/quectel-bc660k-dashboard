@@ -24,9 +24,11 @@ def sleeper(tmp_path):
     proc.wait()
 
 
-def _write_pid(path, pid, directory=None):
+def _write_pid(path, pid, directory=None, start="auto"):
     directory = directory or os.path.dirname(os.path.abspath(instance.__file__))
-    path.write_text(json.dumps({"pid": pid, "dir": directory}))
+    if start == "auto":
+        start = instance._start_time(pid)
+    path.write_text(json.dumps({"pid": pid, "dir": directory, "start": start}))
 
 
 def test_unrelated_server_py_is_left_running(manager, sleeper, tmp_path, monkeypatch):
@@ -70,3 +72,21 @@ def test_malformed_pid_file_is_ignored(tmp_path, content):
     pid_file = tmp_path / "dashboard.pid"
     pid_file.write_text(content)
     assert instance.read_stale_pid(str(pid_file)) is None
+
+
+def test_reused_pid_with_different_start_time_is_left_running(sleeper, tmp_path):
+    """Regression test for #127: a recycled PID must not be terminated."""
+    pid_file = tmp_path / "dashboard.pid"
+    _write_pid(pid_file, sleeper.pid, start=instance._start_time(sleeper.pid) - 3600)
+
+    assert instance.read_stale_pid(str(pid_file)) is None
+    assert instance.terminate_stale_instance(str(pid_file)) is None
+    assert sleeper.poll() is None
+
+
+def test_pid_file_without_start_time_is_ignored(sleeper, tmp_path):
+    pid_file = tmp_path / "dashboard.pid"
+    _write_pid(pid_file, sleeper.pid, start=None)
+
+    assert instance.terminate_stale_instance(str(pid_file)) is None
+    assert sleeper.poll() is None

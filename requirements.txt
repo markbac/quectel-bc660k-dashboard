@@ -1,6 +1,7 @@
 fastapi>=0.100.0
 uvicorn>=0.20.0
 pyserial>=3.5
+psutil>=5.9
 websockets>=11.0
 pydantic>=2.0.0
 pylogkit @ git+https://github.com/markbac/py-logkit
