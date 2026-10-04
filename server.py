@@ -9,6 +9,7 @@ import csv
 import io
 import threading
 import webbrowser
+from contextlib import contextmanager
 from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -135,6 +136,15 @@ class DNSRequest(BaseModel):
 cell_locator = CellLocator()
 
 
+@contextmanager
+def bad_input_is_422():
+    """Answer HTTP 422 when the manager refuses a value, instead of a server error."""
+    try:
+        yield
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 class ExportRequest(BaseModel):
     enabled: bool = False
     interval: int = 60
@@ -192,24 +202,30 @@ def test_export():
 
 @app.post("/api/psm")
 def config_psm(req: PSMRequest):
-    res = manager.set_psm_config(req.enabled, req.t3412 or "10100101", req.t3324 or "00100100")
+    with bad_input_is_422():
+        res = manager.set_psm_config(req.enabled, req.t3412 or "10100101", req.t3324 or "00100100")
     if not manager.is_ok(res):
         raise HTTPException(status_code=502, detail=f"Modem did not accept AT+CPSMS: {res.strip()}")
     return {"status": "ok", "response": res, "state": manager.state}
 
 @app.post("/api/edrx")
 def config_edrx(req: EDRXRequest):
-    res = manager.set_edrx_config(req.enabled, req.edrx_val or "0010")
+    with bad_input_is_422():
+        res = manager.set_edrx_config(req.enabled, req.edrx_val or "0010")
+    if not manager.is_ok(res):
+        raise HTTPException(status_code=502, detail=f"Modem did not accept AT+CEDRXS: {res.strip()}")
     return {"status": "ok", "response": res, "state": manager.state}
 
 @app.post("/api/ping")
 def run_ping(req: PingRequest):
-    res = manager.run_ping_benchmark(req.host or "8.8.8.8", req.count or 4, req.timeout)
+    with bad_input_is_422():
+        res = manager.run_ping_benchmark(req.host or "8.8.8.8", req.count or 4, req.timeout)
     return {"status": "ok", "result": res, "state": manager.state}
 
 @app.post("/api/dns")
 def run_dns(req: DNSRequest):
-    res = manager.run_dns_query(req.domain or "leshan.eclipseprojects.io")
+    with bad_input_is_422():
+        res = manager.run_dns_query(req.domain or "leshan.eclipseprojects.io")
     return {"status": "ok", "result": res, "state": manager.state}
 @app.post("/api/detect")
 def detect_port():
@@ -250,7 +266,8 @@ def update_settings(req: SettingsRequest):
 def configure_apn(req: APNRequest):
     if not manager.is_connected:
         raise HTTPException(status_code=400, detail="Serial port not connected")
-    res = manager.set_apn(req.apn, req.pdp_type, req.cid)
+    with bad_input_is_422():
+        res = manager.set_apn(req.apn, req.pdp_type, req.cid)
     return {"status": "ok", "response": res, "apn_info": manager.state["apn_info"]}
 
 @app.post("/api/file_logging")
@@ -326,7 +343,7 @@ def get_history_series(
     start: Optional[float] = Query(None, description="custom window start, unix seconds"),
     end: Optional[float] = Query(None, description="custom window end, unix seconds"),
 ):
-    """Downsampled RSRP/RSRQ/SINR series of the connected SIM for charting.
+    """Downsampled RSRP/RSRQ/SINR/RSSI/CSQ series of the connected SIM for charting.
 
     ``window`` is ``1h``, ``24h``, ``7d``, ``all``, ``session`` (the current
     recording session) or ``custom`` (between ``start`` and ``end``, unix

@@ -259,3 +259,67 @@ def test_api_survey(client):
         time.sleep(0.05)
     assert manager.state["survey"]["selected"] is None
     assert client.post("/api/survey/stop").status_code == 200
+
+
+# --- every cell seen on each network (#128) -----------------------------------
+
+def cell(rsrp, rsrq, sinr, pci, earfcn, neighbours, cell_id="1A"):
+    return SimpleNamespace(rsrp=rsrp, rsrq=rsrq, sinr=sinr, pci=pci, earfcn=earfcn,
+                           cell_id=cell_id, neighbours=neighbours)
+
+
+def neighbour(pci, earfcn, rsrp, rsrq):
+    return {"rat": "NB-IoT", "pci": pci, "earfcn": earfcn, "rsrp": rsrp, "rsrq": rsrq}
+
+
+def test_merge_cells_lists_serving_then_neighbours_and_flags_the_strongest():
+    from survey import merge_cells
+    cells = merge_cells([
+        cell(-100, -12, 4, 299, 6254, [neighbour(301, 6254, -92, -9), neighbour(321, 6300, -110, -14)]),
+        cell(-102, -12, 6, 299, 6254, [neighbour(301, 6254, -94, -11)]),
+    ])
+    assert [(c["kind"], c["pci"]) for c in cells] == [("serving", 299), ("neighbour", 301), ("neighbour", 321)]
+    serving, near, far = cells
+    assert (serving["rsrp"], serving["sinr"], serving["cell_id"]) == (-101.0, 5.0, "1A")
+    assert near["rsrp"] == -93.0 and near["rsrq"] == -10.0  # averaged over both readings
+    assert far["rsrp"] == -110.0
+    assert [c["best"] for c in cells] == [False, True, False]
+
+
+def test_a_neighbour_that_is_also_the_serving_cell_is_listed_once():
+    from survey import merge_cells
+    cells = merge_cells([cell(-100, -12, 4, 299, 6254, [neighbour(299, 6254, -100, -12)])])
+    assert len(cells) == 1 and cells[0]["kind"] == "serving"
+
+
+def test_readings_without_neighbours_still_give_the_serving_cell():
+    from survey import merge_cells
+    cells = merge_cells([SimpleNamespace(rsrp=-95, rsrq=-9, sinr=3, pci=5, earfcn=1)])
+    assert [(c["kind"], c["rsrp"], c["best"]) for c in cells] == [("serving", -95.0, True)]
+    assert merge_cells([]) == []
+
+
+def test_each_network_result_carries_the_cells_seen_on_it():
+    module = FakeModule(GOOD, SIGNAL)
+    readings = {
+        "23415": cell(-100, -12, 4, 299, 6254, [neighbour(301, 6254, -95, -10)]),
+        "23410": cell(-90, -10, 8, 310, 6254, [neighbour(311, 6254, -85, -8), neighbour(312, 6300, -99, -13)]),
+        "23430": cell(-95, -9, 12, 320, 6300, []),
+    }
+    module.parse_cell = lambda reply: readings.get(reply)
+    run, _ = run_survey(module)
+
+    by_plmn = {r["plmn"]: r for r in run.state["results"]}
+    assert run.state["best"] == "23410"
+    assert [(c["kind"], c["pci"]) for c in by_plmn["23410"]["cells"]] == [
+        ("serving", 310), ("neighbour", 311), ("neighbour", 312)]
+    assert [c["pci"] for c in by_plmn["23410"]["cells"] if c["best"]] == [311]
+    assert len(by_plmn["23415"]["cells"]) == 2
+    assert len(by_plmn["23430"]["cells"]) == 1
+
+
+def test_a_network_that_did_not_register_has_no_cells():
+    module = FakeModule({"23415": 5, "23410": 3, "23430": 5}, SIGNAL)
+    run, _ = run_survey(module)
+    denied = next(r for r in run.state["results"] if r["plmn"] == "23410")
+    assert denied["status"] == "denied" and denied["cells"] == []

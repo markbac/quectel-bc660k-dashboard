@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- The Signal Strength Trend chart can plot RSRP, RSRQ, SINR, RSSI and CSQ, with a checkbox for each. The choice is remembered in the browser, and an axis is drawn only while a metric on it is shown. `/api/history/series` now also returns `rssi` and `csq` (#115).
+- The network survey records every cell it can see on each network (serving and neighbour cells, with PCI, EARFCN, RSRP and RSRQ), lists them under the network and marks the strongest (#128).
+
+### Fixed
+
+- Reconnecting no longer leaves two poll loops running (#116).
+- No history row or live chart point is recorded while the module is asleep or silent, and the live chart no longer adds duplicate points for scan, survey or APN events (#117, #125).
+- APN, PDP type, context id, ping host, DNS name, PSM timers and the eDRX value are validated, and bad values give HTTP 422 instead of a broken or doubled AT command (#118).
+- An eDRX change the module rejects is reported as a failure (HTTP 502) and keeps the granted values (#119).
+- A carrier scan can no longer start twice or stay stuck on "scanning" after an error (#120). The demo simulator no longer stops silently on an error (#121).
+- RSRQ and RSSI bars are empty when there is no value, PCI 0 and EARFCN 0 are shown, and the log console keeps the newest 500 lines (#122, #123, #124).
+- The webhook bearer token is no longer sent to another host when the server redirects (#126).
+
+### Known issue
+
+- A stale `dashboard.pid` can make the dashboard terminate an unrelated process that reused the PID (#127).
+
 ## 2.0.0 - 2026-10-03
 
 A large reliability, security and feature release. Several changes are not backwards compatible, see "Upgrading".

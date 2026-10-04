@@ -393,6 +393,13 @@
                         </span>
                         <span class="update-pulse" id="livePulse"><i class="fa-solid fa-circle"></i> Live</span>
                     </div>
+                    <div class="chart-metrics" id="chartMetrics" role="group" aria-label="Metrics shown on the chart">
+                        <label class="chart-metric" style="--series-color: #3b82f6"><input type="checkbox" data-metric="rsrp"> RSRP</label>
+                        <label class="chart-metric" style="--series-color: #06b6d4"><input type="checkbox" data-metric="rsrq"> RSRQ</label>
+                        <label class="chart-metric" style="--series-color: #f59e0b"><input type="checkbox" data-metric="sinr"> SINR</label>
+                        <label class="chart-metric" style="--series-color: #a855f7"><input type="checkbox" data-metric="rssi"> RSSI</label>
+                        <label class="chart-metric" style="--series-color: #22c55e"><input type="checkbox" data-metric="csq"> CSQ</label>
+                    </div>
                     <div class="card-body chart-container">
                         <canvas id="signalChart"></canvas>
                     </div>

@@ -54,6 +54,9 @@ function loadDashboard(options = {}) {
     w.Chart = class {
         constructor(ctx, config) {
             harness.chartConfig = config;
+            // Like Chart.js, expose the live data and options on the instance.
+            this.data = config.data;
+            this.options = config.options;
         }
         update() {}
     };

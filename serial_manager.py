@@ -51,6 +51,27 @@ CEREG_STAT_NAMES = {
 }
 
 
+# Text that can sit inside a quoted AT string: printable ASCII without the double quote.
+_AT_TEXT = re.compile(r'[\x20\x21\x23-\x7e]*')
+
+
+def _at_text(value: Any, name: str, max_len: int = 100) -> str:
+    """Return ``value`` if it is safe inside a quoted AT parameter, else raise ``ValueError``.
+
+    A double quote ends the string early and CR or LF would send a second command.
+    """
+    if not isinstance(value, str) or len(value) > max_len or not _AT_TEXT.fullmatch(value):
+        raise ValueError(f"{name} must be printable ASCII without double quotes, at most {max_len} characters.")
+    return value
+
+
+def _bits(value: Any, name: str, length: int) -> str:
+    """Return ``value`` if it is a string of ``length`` binary digits, else raise ``ValueError``."""
+    if not isinstance(value, str) or not re.fullmatch(f"[01]{{{length}}}", value):
+        raise ValueError(f"{name} must be {length} binary digits (0 or 1).")
+    return value
+
+
 # Fixed identity used in demo mode so simulated rows never mix with real data.
 DEFAULT_HISTORY_INTERVAL = 5  # seconds between database rows
 DEMO_ICCID = "DEMO-SIMULATED-SIM"
@@ -87,6 +108,8 @@ class SerialManager:
         "may be asleep."
     )
     ATTACH_CHECKS = 5
+    # States in which the module is not answering, so the signal values are old.
+    SILENT_MODEM_STATES = (MODEM_PSM, MODEM_DEEP_SLEEP, MODEM_UNRESPONSIVE)
     # Context ID used by the documented AT+QPING / AT+QIDNSGIP examples.
     PING_CONTEXT_ID = 0
     # Seconds to wait for each echo. The module's own default is 4 s, but a real
@@ -139,6 +162,7 @@ class SerialManager:
         self._survey_abort = threading.Event()
 
         self.poll_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()  # one per connection, so an old loop cannot outlive it
         self.running: bool = False
         self.callbacks = []
         self.db = DBManager(db_path) if db_path else DBManager()
@@ -298,6 +322,8 @@ class SerialManager:
     def _log_history(self):
         """Write one history row for the current state, if it qualifies."""
         self._prune_if_due()
+        if not self.is_demo and self.state.get("modem_state") in self.SILENT_MODEM_STATES:
+            return  # the signal values are from before the module went quiet
         self._update_session()
         self.db.log_record(self.state, self._session_id)
 
@@ -334,6 +360,10 @@ class SerialManager:
         Configure APN & PDP Context on Quectel BC660K module.
         Executes: AT+CGDCONT=<cid>,"<pdp_type>","<apn>"
         """
+        apn = _at_text(apn, "APN")
+        pdp_type = _at_text(pdp_type, "PDP type", 10)
+        if not isinstance(cid, int) or isinstance(cid, bool) or not 0 <= cid <= 15:
+            raise ValueError("Context id must be a whole number from 0 to 15.")
         self.log(f"[APN CONFIG] Setting Context {cid}: Type={pdp_type}, APN='{apn}'...", "INFO")
         
         if self.is_demo:
@@ -397,6 +427,8 @@ class SerialManager:
     def set_psm_config(self, enabled: bool, t3412: str = "10100101", t3324: str = "00100100") -> str:
         """Configure PSM (Power Saving Mode) on Quectel BC660K."""
         mode = 1 if enabled else 0
+        t3412 = _bits(t3412, "T3412", 8)
+        t3324 = _bits(t3324, "T3324", 8)
         self.log(f"[PSM CONFIG] Setting PSM Mode={mode}, T3412='{t3412}', T3324='{t3324}'...", "INFO")
         
         if self.is_demo:
@@ -465,28 +497,31 @@ class SerialManager:
         self._update_psm_text()
 
     def set_edrx_config(self, enabled: bool, edrx_val: str = "0010") -> str:
-        """Configure eDRX (Extended Discontinuous Reception) on Quectel BC660K."""
+        """Configure eDRX (Extended Discontinuous Reception) on Quectel BC660K.
+
+        :raises ValueError: if ``edrx_val`` is not four binary digits.
+        :returns: the module's reply. ``edrx_info`` only changes if it said OK.
+        """
         mode = 1 if enabled else 0
+        edrx_val = _bits(edrx_val, "eDRX value", 4)
         self.log(f"[eDRX CONFIG] Setting eDRX Mode={mode}, Value='{edrx_val}'...", "INFO")
-        
+        info = self.state["edrx_info"]
+
         if self.is_demo:
-            self.state["edrx_info"] = {
-                "enabled": enabled,
-                "value": edrx_val,
-                "status": "eDRX Enabled (Simulated)" if enabled else "eDRX Disabled"
-            }
+            info.update(enabled=enabled, value=edrx_val,
+                        status="eDRX Enabled (Simulated)" if enabled else "eDRX Disabled")
             self.log("[eDRX OK] Simulated eDRX updated.", "INFO")
             self._notify("state", self.state)
             return "OK"
 
         with self.lock:
-            cmd = f'AT+CEDRXS={mode},5,"{edrx_val}"'
-            resp = self._send_at_cmd_raw(cmd)
-            self.state["edrx_info"] = {
-                "enabled": enabled,
-                "value": edrx_val,
-                "status": "eDRX Enabled" if enabled else "eDRX Disabled"
-            }
+            resp = self._send_at_cmd_raw(f'AT+CEDRXS={mode},5,"{edrx_val}"')
+            if self.is_ok(resp):
+                info.update(enabled=enabled, value=edrx_val,
+                            status="eDRX Enabled" if enabled else "eDRX Disabled")
+            else:
+                info["status"] = f"eDRX command failed: {resp.strip()}"
+                self.log(f"[eDRX ERROR] Module did not accept the eDRX setting: {resp.strip()}", "ERROR")
             self._notify("state", self.state)
             return resp
 
@@ -498,6 +533,8 @@ class SerialManager:
         :param count: number of echoes, 1 to 10.
         :param timeout: seconds to wait for each echo (1 to 255), default ``PING_REPLY_TIMEOUT``.
         """
+        host = _at_text(host, "Host", 253)
+        count = max(1, min(10, int(count)))
         low, high = self.PING_TIMEOUT_RANGE
         timeout = max(low, min(high, int(timeout if timeout is not None else self.PING_REPLY_TIMEOUT)))
         self.log(f"[PING TEST] Pinging '{host}' ({count} packets, {timeout} s timeout each)...", "INFO")
@@ -520,7 +557,6 @@ class SerialManager:
             self._notify("state", self.state)
             return res
 
-        count = max(1, min(10, int(count)))
         with self.lock:
             cmd = f'AT+QPING={self.PING_CONTEXT_ID},"{host}",{timeout},{count}'
             resp = self._send_at_cmd_raw(
@@ -536,6 +572,7 @@ class SerialManager:
 
     def run_dns_query(self, domain: str = "leshan.eclipseprojects.io") -> Dict[str, Any]:
         """Executes DNS domain lookup on modem."""
+        domain = _at_text(domain, "Domain", 253)
         self.log(f"[DNS QUERY] Resolving domain '{domain}'...", "INFO")
 
         if self.is_demo:
@@ -740,7 +777,8 @@ class SerialManager:
                 else:
                     self.log("[CONNECT] No answer to AT yet; will keep checking in the background.", "WARNING")
 
-                self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+                self._stop_event = threading.Event()
+                self.poll_thread = threading.Thread(target=self._poll_loop, args=(self._stop_event,), daemon=True)
                 self.poll_thread.start()
 
                 self._notify("state", self.state)
@@ -773,13 +811,15 @@ class SerialManager:
             self.state["sim_info"]["iccid"] = DEMO_ICCID
             self.log("[DEMO MODE] Started hardware simulator (CLI --demo flag)", "INFO")
 
-            self.poll_thread = threading.Thread(target=self._demo_loop, daemon=True)
+            self._stop_event = threading.Event()
+            self.poll_thread = threading.Thread(target=self._demo_loop, args=(self._stop_event,), daemon=True)
             self.poll_thread.start()
             self._notify("state", self.state)
             return True
 
     def disconnect(self):
         self.running = False
+        self._stop_event.set()
         if self.poll_thread and self.poll_thread.is_alive():
             self.poll_thread.join(timeout=1.0)
 
@@ -789,6 +829,7 @@ class SerialManager:
     def _reset_locked(self):
         """Close the port and reset state. The caller must hold ``self.lock``."""
         self.running = False
+        self._stop_event.set()
         self.db.end_session(self._session_id)
         self._session_id = None
         self._session_iccid = None
@@ -824,7 +865,7 @@ class SerialManager:
             return
         self.state["modem_state"] = new_state
         self.log(f"[MODEM STATE] {old} -> {new_state}", "INFO")
-        if new_state in (MODEM_PSM, MODEM_DEEP_SLEEP, MODEM_UNRESPONSIVE):
+        if new_state in self.SILENT_MODEM_STATES:
             self._hardware_info_loaded = False
 
     def _read_idle_urcs(self):
@@ -1012,56 +1053,71 @@ class SerialManager:
             return '\r\n+CEREG: 4,5\r\n\r\nOK\r\n'
         if command == self.driver.cell_command:
             rsrp, rsrq, sinr = self._DEMO_SURVEY_SIGNAL.get(getattr(self, "_demo_plmn", ""), (-100, -11, 5))
-            return f'\r\n+QENG: 0,6254,12,299,"004EB815",{rsrp},{rsrq},-90,{sinr},20,"E43A",0,-128,2\r\n\r\nOK\r\n'
+            return (
+                f'\r\n+QENG: 0,6254,12,299,"004EB815",{rsrp},{rsrq},-90,{sinr},20,"E43A",0,-128,2\r\n'
+                f'+QENG: 1,6254,301,{rsrp - 6},{rsrq - 1}\r\n'
+                f'+QENG: 1,6300,321,{rsrp + 3},{rsrq + 1}\r\n\r\nOK\r\n'
+            )
         if command == "AT+COPS?":
             return '\r\n+COPS: 0,2,"23415",9\r\n\r\nOK\r\n'
         return "\r\nOK\r\n"
 
     def trigger_async_cops_scan(self):
+        """Start a carrier scan in the background unless one is already running."""
         if self.state["is_scanning"] or self.state["survey"]["running"]:
             return
+        # Claim the scan here, not in the thread, so two quick requests cannot both start one.
+        if not self.scan_lock.acquire(blocking=False):
+            return
+        self.state["is_scanning"] = True
+        self.state["scan_error"] = None
 
         def _scan_worker():
-            with self.scan_lock:
-                self.state["is_scanning"] = True
-                self.state["scan_error"] = None
+            try:
                 self._notify("state", self.state)
                 self.log("[SCAN START] Scanning visible carrier spectrum (AT+COPS=?)...", "INFO")
-
-                if self.is_demo:
-                    time.sleep(2.5)
-                    scanned = [
-                        {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "NB-IoT (E-UTRAN NB-S1)"},
-                        {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "NB-IoT (E-UTRAN NB-S1)"},
-                        {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "NB-IoT (E-UTRAN NB-S1)"},
-                        {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "NB-IoT (E-UTRAN NB-S1)"}
-                    ]
-                else:
-                    with self.lock:
-                        # The module does not answer anything else during a scan.
-                        self._scan_in_progress = True
-                        try:
-                            resp = self._send_at_cmd_raw("AT+COPS=?")
-                        finally:
-                            self._scan_in_progress = False
-                        scanned = self._parse_cops_scan(resp)
-                    if resp == TIMEOUT_RESPONSE:
-                        seconds = timeout_for("AT+COPS=?", default=30.0)
-                        self.state["scan_error"] = (
-                            f"The module gave no answer to AT+COPS=? within {seconds:.0f} s. "
-                            "It may not support a manual network search while it is registered."
-                        )
-                        self.log("[SCAN FAILED] No answer to AT+COPS=? within the scan time allowed.", "WARNING")
-                        scanned = None
-
+                scanned = self._run_scan()
                 if scanned is not None:
                     self.state["networks_scan"] = scanned
                     self.log(f"[SCAN COMPLETE] Spectrum search finished. Found {len(scanned)} networks.", "INFO")
+            except Exception as exc:  # never leave the UI waiting for a scan that has died
+                self.state["scan_error"] = f"The scan failed: {exc}"
+                self.log(f"[SCAN FAILED] {exc}", "ERROR")
+            finally:
                 self.state["is_scanning"] = False
                 self.last_cops_scan_time = time.time()
                 self._notify("state", self.state)
+                self.scan_lock.release()
 
         threading.Thread(target=_scan_worker, daemon=True).start()
+
+    def _run_scan(self) -> Optional[List[Dict[str, Any]]]:
+        """Run ``AT+COPS=?``; the networks found, or ``None`` if the module gave no answer."""
+        if self.is_demo:
+            time.sleep(2.5)
+            return [
+                {"status": "Current", "status_code": 2, "long_name": "Vodafone UK", "short_name": "voda UK", "plmn": "23415", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                {"status": "Available", "status_code": 1, "long_name": "EE", "short_name": "EE", "plmn": "23430", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                {"status": "Available", "status_code": 1, "long_name": "O2 - UK", "short_name": "O2", "plmn": "23410", "act": "NB-IoT (E-UTRAN NB-S1)"},
+                {"status": "Forbidden", "status_code": 3, "long_name": "Three UK", "short_name": "3 UK", "plmn": "23420", "act": "NB-IoT (E-UTRAN NB-S1)"}
+            ]
+        with self.lock:
+            # The module does not answer anything else during a scan.
+            self._scan_in_progress = True
+            try:
+                resp = self._send_at_cmd_raw("AT+COPS=?")
+            finally:
+                self._scan_in_progress = False
+            scanned = self._parse_cops_scan(resp)
+        if resp == TIMEOUT_RESPONSE:
+            seconds = timeout_for("AT+COPS=?", default=30.0)
+            self.state["scan_error"] = (
+                f"The module gave no answer to AT+COPS=? within {seconds:.0f} s. "
+                "It may not support a manual network search while it is registered."
+            )
+            self.log("[SCAN FAILED] No answer to AT+COPS=? within the scan time allowed.", "WARNING")
+            return None
+        return scanned
 
     def _poll_hardware_info(self):
         """Run the start-up profile: identity, SIM, power-saving state and network.
@@ -1202,9 +1258,10 @@ class SerialManager:
         if current != previous:
             self.log("[SIM] SIM identity changed; history view follows the new SIM.", "WARNING")
 
-    def _poll_loop(self):
+    def _poll_loop(self, stop: threading.Event):
+        """Poll until ``stop`` is set (by ``disconnect``, or a newer connection replacing this one)."""
         last_db_log = 0
-        while self.running and self.is_connected and not self.is_demo:
+        while not stop.is_set() and self.running and self.is_connected and not self.is_demo:
             try:
                 self._poll_once()
 
@@ -1221,51 +1278,55 @@ class SerialManager:
             except Exception as e:
                 self.py_logger.error(f"Error in poll loop: {e}")
 
-            time.sleep(self.telemetry_interval)
+            stop.wait(self.telemetry_interval)
 
-    def _demo_loop(self):
+    def _demo_loop(self, stop: threading.Event):
         base_rsrp = -95
         base_rsrq = -11
         base_sinr = 14
         last_db_log = 0
 
-        while self.running and self.is_demo:
-            rsrp_noise = random.randint(-4, 4)
-            rsrq_noise = random.randint(-2, 2)
-            sinr_noise = random.randint(-3, 3)
+        while not stop.is_set() and self.running and self.is_demo:
+            try:
+                rsrp_noise = random.randint(-4, 4)
+                rsrq_noise = random.randint(-2, 2)
+                sinr_noise = random.randint(-3, 3)
 
-            current_rsrp = max(-130, min(-55, base_rsrp + rsrp_noise))
-            current_rsrq = max(-20, min(-3, base_rsrq + rsrq_noise))
-            current_sinr = max(-10, min(30, base_sinr + sinr_noise))
+                current_rsrp = max(-130, min(-55, base_rsrp + rsrp_noise))
+                current_rsrq = max(-20, min(-3, base_rsrq + rsrq_noise))
+                current_sinr = max(-10, min(30, base_sinr + sinr_noise))
 
-            csq = max(0, min(31, int((current_rsrp + 113) / 2)))
-            rssi = -113 + (csq * 2)
+                csq = max(0, min(31, int((current_rsrp + 113) / 2)))
+                rssi = -113 + (csq * 2)
 
-            label = "Excellent" if current_rsrp > -80 else ("Good" if current_rsrp > -95 else ("Fair" if current_rsrp > -110 else "Poor"))
+                label = "Excellent" if current_rsrp > -80 else ("Good" if current_rsrp > -95 else ("Fair" if current_rsrp > -110 else "Poor"))
 
-            self.state["signal"] = {
-                "rssi": rssi,
-                "csq": csq,
-                "rsrp": current_rsrp,
-                "rsrq": current_rsrq,
-                "sinr": current_sinr,
-                "ber": 0,
-                "quality_label": label
-            }
+                self.state["signal"] = {
+                    "rssi": rssi,
+                    "csq": csq,
+                    "rsrp": current_rsrp,
+                    "rsrq": current_rsrq,
+                    "sinr": current_sinr,
+                    "ber": 0,
+                    "quality_label": label
+                }
 
-            self.state["system_info"]["voltage"] = 3470 + random.randint(-20, 20)
+                self.state["system_info"]["voltage"] = 3470 + random.randint(-20, 20)
 
-            self.state["last_update"] = time.time()
+                self.state["last_update"] = time.time()
 
-            if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
-                self.trigger_async_cops_scan()
+                if self.cops_scan_interval > 0 and (time.time() - self.last_cops_scan_time) >= self.cops_scan_interval:
+                    self.trigger_async_cops_scan()
 
-            if time.time() - last_db_log >= self.history_interval:
-                self._log_history()
-                last_db_log = time.time()
+                if time.time() - last_db_log >= self.history_interval:
+                    self._log_history()
+                    last_db_log = time.time()
 
-            self._notify("state", self.state)
-            time.sleep(self.telemetry_interval)
+                self._notify("state", self.state)
+            except Exception as e:
+                self.py_logger.error(f"Error in demo loop: {e}")
+
+            stop.wait(self.telemetry_interval)
 
     # --- Parsers ---
     def _parse_csq(self, resp: str):

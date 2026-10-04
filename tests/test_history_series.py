@@ -145,3 +145,16 @@ def test_history_interval_setting(api):
     assert server.manager.state["history_interval"] == 30
     client.post("/api/settings", json={"history_interval": 0})  # ignored: out of range
     assert server.manager.history_interval == 30
+
+
+def test_series_carries_rssi_and_csq(db):
+    with sqlite3.connect(db.db_path) as conn:
+        for i, (rssi, csq) in enumerate([(-85, 14), (-83, 15), (None, None)]):
+            conn.execute(
+                "INSERT INTO signal_history (unix_time, rsrp, rsrq, sinr, rssi, csq, iccid) VALUES (?,?,?,?,?,?,?)",
+                (1_000_000.0 + i, -90, -10, 5, rssi, csq, ICCID),
+            )
+    plain = db.get_series(ICCID, max_points=300)
+    assert [(r["rssi"], r["csq"]) for r in plain] == [(-85, 14), (-83, 15), (None, None)]
+    averaged = db.get_series(ICCID, max_points=1)
+    assert averaged[0]["rssi"] == -84 and averaged[0]["csq"] == 14.5

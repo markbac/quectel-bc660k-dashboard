@@ -281,3 +281,33 @@ test("survey errors and hostile names are shown as text (#112)", () => {
     assert.strictEqual(h.document.querySelector("#surveyError img"), null);
     assert.ok(h.text("surveyError").includes(hostile));
 });
+
+test("the survey table lists every cell under its network and marks the strongest (#128)", () => {
+    const h = loadDashboard();
+    h.push({
+        ...fullState,
+        survey: {
+            running: false, phase: "Finished", best: "23410", selected: "23410", error: null,
+            results: [{
+                plmn: "23410", name: "O2 UK", status: "registered", rsrp: -90, rsrq: -10, sinr: 8,
+                pci: 310, earfcn: 6254, seconds: 40,
+                cells: [
+                    { kind: "serving", pci: 310, earfcn: 6254, cell_id: "1A", rsrp: -90, rsrq: -10, sinr: 8, best: false },
+                    { kind: "neighbour", pci: 311, earfcn: 6254, cell_id: null, rsrp: -85, rsrq: -8, sinr: null, best: true },
+                ],
+            }, {
+                plmn: "23420", name: "<b>Three</b>", status: "denied", rsrp: null, rsrq: null, sinr: null,
+                pci: null, earfcn: null, seconds: 5, cells: [],
+            }],
+        },
+    });
+    const rows = [...h.document.querySelectorAll("#surveyTableBody tr")];
+    assert.strictEqual(rows.length, 4);
+    assert.ok(rows[0].classList.contains("survey-best"));
+    assert.ok(rows[1].classList.contains("survey-cell"));
+    assert.match(rows[1].textContent, /Serving cell 1A/);
+    assert.match(rows[2].textContent, /Neighbour cell \(strongest\)/);
+    assert.match(rows[2].textContent, /-85/);
+    assert.ok(!rows[3].classList.contains("survey-cell"));
+    assert.strictEqual(h.document.querySelector("#surveyTableBody b"), null);
+});

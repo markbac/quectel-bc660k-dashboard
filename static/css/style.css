@@ -857,3 +857,40 @@ select:focus {
 }
 
 .cell-map { height: 320px; border-radius: 8px; margin-top: 8px; }
+
+.chart-metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1rem;
+    padding: 0.5rem 1.25rem 0;
+}
+
+.chart-metric {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: var(--text-main);
+}
+
+.chart-metric::after {
+    content: "";
+    width: 0.75rem;
+    height: 0.2rem;
+    border-radius: 2px;
+    background: var(--series-color);
+}
+
+.chart-metric input {
+    accent-color: var(--series-color);
+}
+
+.survey-cell td {
+    font-size: 0.8rem;
+    color: var(--text-muted, #8c9cb8);
+}
+
+.survey-cell td:first-child {
+    padding-left: 1.75rem;
+}

@@ -99,6 +99,16 @@ class ExportConfig:
             json.dump(self.to_dict(), handle, indent=2)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects, so the bearer token is never sent to a host the user did not configure."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # the 3xx answer is raised as an HTTPError
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def valid_webhook_url(url: str) -> bool:
     """True for an ``http`` or ``https`` URL with a host."""
     parts = urlsplit(url)
@@ -134,7 +144,7 @@ def send_webhook(url: str, payload: Dict[str, Any], token: Optional[str] = None)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:  # noqa: S310 (scheme checked)
+    with _OPENER.open(request, timeout=WEBHOOK_TIMEOUT_SECONDS) as response:  # noqa: S310 (scheme checked)
         if response.status >= 300:
             raise OSError(f"webhook answered HTTP {response.status}")
 

@@ -99,11 +99,51 @@ document.addEventListener("DOMContentLoaded", () => {
     let chart = null;
     let lastIccid = null;
     const HISTORY_REFRESH_MS = 30000;
-    let chartData = {
-        labels: [],
-        rsrp: [],
-        rsrq: []
+    // Metrics the trend chart can plot. Each has a checkbox in the chart header;
+    // "axis" is the Chart.js scale it is drawn against.
+    const CHART_METRICS = [
+        { key: "rsrp", label: "RSRP (dBm)", color: "#3b82f6", axis: "y", fill: true },
+        { key: "rsrq", label: "RSRQ (dB)", color: "#06b6d4", axis: "y1", dash: [4, 4] },
+        { key: "sinr", label: "SINR (dB)", color: "#f59e0b", axis: "y1", dash: [2, 3] },
+        { key: "rssi", label: "RSSI (dBm)", color: "#a855f7", axis: "y", dash: [8, 3] },
+        { key: "csq", label: "CSQ (0-31)", color: "#22c55e", axis: "y2", dash: [1, 3] }
+    ];
+    const CHART_AXES = {
+        y: { title: "dBm", color: "#8c9cb8", min: -140, max: -40, position: "left" },
+        y1: { title: "dB", color: "#8c9cb8", min: -25, max: 30, position: "right" },
+        y2: { title: "CSQ", color: "#8c9cb8", min: 0, max: 31, position: "right" }
     };
+    const CHART_METRICS_KEY = "quectel-dashboard-chart-metrics";
+    let chartData = { labels: [] };
+    CHART_METRICS.forEach(m => { chartData[m.key] = []; });
+
+    function clearChartData() {
+        chartData.labels.length = 0;
+        CHART_METRICS.forEach(m => { chartData[m.key].length = 0; });
+    }
+
+    // Plot a reading, or a gap when the module has not reported it.
+    function chartValue(value) {
+        return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
+    }
+
+    // Metrics shown by default. A saved choice, if any, replaces it.
+    function loadChartMetrics() {
+        const shown = { rsrp: true, rsrq: true, sinr: false, rssi: false, csq: false };
+        try {
+            const saved = JSON.parse(localStorage.getItem(CHART_METRICS_KEY) || "null");
+            if (saved && typeof saved === "object") {
+                CHART_METRICS.forEach(m => {
+                    if (typeof saved[m.key] === "boolean") shown[m.key] = saved[m.key];
+                });
+            }
+        } catch (err) {
+            // storage unavailable or corrupt: keep the defaults
+        }
+        return shown;
+    }
+    let chartMetricsShown = loadChartMetrics();
+    let lastChartStamp = null;  // last_update of the poll the live chart last plotted
 
     // --- Signal alerts (rules live in alerts.js) ---
     const ALERT_STORAGE_KEY = "quectel-dashboard-alerts";
@@ -384,13 +424,10 @@ document.addEventListener("DOMContentLoaded", () => {
             const data = await res.json();
             if (requested !== chartWindow) return;  // user switched while loading
             const series = data.series || [];
-            chartData.labels.length = 0;
-            chartData.rsrp.length = 0;
-            chartData.rsrq.length = 0;
+            clearChartData();
             series.forEach(row => {
                 chartData.labels.push(chartLabel(row.unix_time, requested));
-                chartData.rsrp.push(row.rsrp === null ? null : Math.round(row.rsrp * 10) / 10);
-                chartData.rsrq.push(row.rsrq === null ? null : Math.round(row.rsrq * 10) / 10);
+                CHART_METRICS.forEach(m => chartData[m.key].push(chartValue(row[m.key])));
             });
             if (chart) chart.update();
         } catch (err) {
@@ -401,9 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function setChartWindow(value) {
         chartWindow = value;
         customRange.hidden = value !== "custom";
-        chartData.labels.length = 0;
-        chartData.rsrp.length = 0;
-        chartData.rsrq.length = 0;
+        clearChartData();
         if (chart) chart.update();
         loadChartSeries();
     }
@@ -414,68 +449,85 @@ document.addEventListener("DOMContentLoaded", () => {
         chartWindowSelect.addEventListener("change", () => setChartWindow(chartWindowSelect.value));
     }
 
+    // An axis is drawn only while a visible metric uses it.
+    function axisInUse(axisId) {
+        return CHART_METRICS.some(m => m.axis === axisId && chartMetricsShown[m.key]);
+    }
+
+    function applyChartMetrics() {
+        if (!chart) return;
+        chart.data.datasets.forEach((dataset, i) => {
+            dataset.hidden = !chartMetricsShown[CHART_METRICS[i].key];
+        });
+        Object.keys(CHART_AXES).forEach(id => {
+            chart.options.scales[id].display = axisInUse(id);
+        });
+        chart.update();
+    }
+
+    document.querySelectorAll("#chartMetrics input[data-metric]").forEach(box => {
+        const key = box.dataset.metric;
+        if (!(key in chartMetricsShown)) return;
+        box.checked = chartMetricsShown[key];
+        box.addEventListener("change", () => {
+            chartMetricsShown[key] = box.checked;
+            try {
+                localStorage.setItem(CHART_METRICS_KEY, JSON.stringify(chartMetricsShown));
+            } catch (err) {
+                // storage unavailable: the choice just lasts until reload
+            }
+            applyChartMetrics();
+        });
+    });
+
     // Initialize Signal Trend Chart
     function initChart() {
         const ctx = document.getElementById("signalChart").getContext("2d");
+        const scales = {
+            x: {
+                grid: { color: "rgba(255, 255, 255, 0.05)" },
+                ticks: { color: "#8c9cb8", font: { size: 10 } }
+            }
+        };
+        Object.entries(CHART_AXES).forEach(([id, axis]) => {
+            scales[id] = {
+                type: "linear",
+                display: axisInUse(id),
+                position: axis.position,
+                title: { display: true, text: axis.title, color: axis.color },
+                min: axis.min,
+                max: axis.max,
+                grid: id === "y"
+                    ? { color: "rgba(255, 255, 255, 0.08)" }
+                    : { drawOnChartArea: false },
+                ticks: { color: "#8c9cb8" }
+            };
+        });
         chart = new Chart(ctx, {
             type: "line",
             data: {
                 labels: chartData.labels,
-                datasets: [
-                    {
-                        label: "RSRP (dBm)",
-                        data: chartData.rsrp,
-                        borderColor: "#3b82f6",
-                        backgroundColor: "rgba(59, 130, 246, 0.1)",
-                        borderWidth: 2,
-                        tension: 0.3,
-                        fill: true,
-                        yAxisID: "y"
-                    },
-                    {
-                        label: "RSRQ (dB)",
-                        data: chartData.rsrq,
-                        borderColor: "#06b6d4",
-                        backgroundColor: "transparent",
-                        borderWidth: 2,
-                        borderDash: [4, 4],
-                        tension: 0.3,
-                        yAxisID: "y1"
-                    }
-                ]
+                datasets: CHART_METRICS.map(m => ({
+                    label: m.label,
+                    data: chartData[m.key],
+                    borderColor: m.color,
+                    backgroundColor: m.fill ? "rgba(59, 130, 246, 0.1)" : "transparent",
+                    borderWidth: 2,
+                    borderDash: m.dash || [],
+                    tension: 0.3,
+                    fill: Boolean(m.fill),
+                    yAxisID: m.axis,
+                    hidden: !chartMetricsShown[m.key]
+                }))
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
-                scales: {
-                    x: {
-                        grid: { color: "rgba(255, 255, 255, 0.05)" },
-                        ticks: { color: "#8c9cb8", font: { size: 10 } }
-                    },
-                    y: {
-                        type: "linear",
-                        display: true,
-                        position: "left",
-                        title: { display: true, text: "RSRP (dBm)", color: "#3b82f6" },
-                        min: -140,
-                        max: -50,
-                        grid: { color: "rgba(255, 255, 255, 0.08)" },
-                        ticks: { color: "#8c9cb8" }
-                    },
-                    y1: {
-                        type: "linear",
-                        display: true,
-                        position: "right",
-                        title: { display: true, text: "RSRQ (dB)", color: "#06b6d4" },
-                        min: -25,
-                        max: 0,
-                        grid: { drawOnChartArea: false },
-                        ticks: { color: "#8c9cb8" }
-                    }
-                },
+                scales,
                 plugins: {
-                    legend: { labels: { color: "#f0f4fc" } }
+                    // The checkboxes above the chart are the legend.
+                    legend: { display: false }
                 }
             }
         });
@@ -577,9 +629,7 @@ document.addEventListener("DOMContentLoaded", () => {
     clearDbBtn.addEventListener("click", async () => {
         if (confirm("Delete the stored telemetry history for the connected SIM?")) {
             await fetch("/api/history/clear", { method: "POST" });
-            chartData.labels.length = 0;
-            chartData.rsrp.length = 0;
-            chartData.rsrq.length = 0;
+            clearChartData();
             if (chart) chart.update();
             loadHistory();
         }
@@ -964,10 +1014,10 @@ document.addEventListener("DOMContentLoaded", () => {
             rsrpQuality.className = "badge badge-secondary";
         }
 
-        let rsrqPct = hasSignalData ? Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100)) : 0;
+        let rsrqPct = hasSignalData && typeof sig.rsrq === "number" ? Math.max(0, Math.min(100, ((sig.rsrq + 20) / 20) * 100)) : 0;
         rsrqBar.style.width = `${rsrqPct}%`;
 
-        let rssiPct = hasSignalData ? Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100)) : 0;
+        let rssiPct = hasSignalData && typeof sig.rssi === "number" ? Math.max(0, Math.min(100, ((sig.rssi + 113) / 62) * 100)) : 0;
         rssiBar.style.width = `${rssiPct}%`;
 
         let sinrPct = hasSignalData && sig.sinr !== null ? Math.max(0, Math.min(100, ((sig.sinr + 10) / 40) * 100)) : 0;
@@ -1022,8 +1072,8 @@ document.addEventListener("DOMContentLoaded", () => {
         tacVal.childNodes[0].nodeValue = isCommunicated ? `${sc.tac || '--'} ` : "-- ";
         tacDec.textContent = isCommunicated && sc.tac_dec && sc.tac_dec !== "--" ? `(${sc.tac_dec})` : "";
 
-        pciVal.textContent = isCommunicated ? (sc.pci || "--") : "--";
-        bandVal.textContent = isCommunicated && sc.earfcn && sc.earfcn !== "--" ? `EARFCN ${sc.earfcn} (Band ${sc.band})` : "--";
+        pciVal.textContent = isCommunicated ? (sc.pci ?? "--") : "--";
+        bandVal.textContent = isCommunicated && sc.earfcn !== undefined && sc.earfcn !== null && sc.earfcn !== "--" ? `EARFCN ${sc.earfcn} (Band ${sc.band})` : "--";
 
         // Neighbour Cells Table
         const neighbours = state.neighbour_cells || [];
@@ -1088,16 +1138,20 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         // Push data to Live Trend Chart only if signal data present
-        if (hasSignalData && chartWindow === "live") {
+        // Not on pushes that are not a new poll (scan, survey and APN events carry the old reading)
+        // and not while the module is silent, when the reading is from before it went quiet.
+        const stamp = typeof state.last_update === "number" ? state.last_update : null;
+        const modemSilent = ["psm", "deep_sleep", "unresponsive"].includes(state.modem_state);
+        const newReading = stamp === null || stamp !== lastChartStamp;
+        if (hasSignalData && chartWindow === "live" && !modemSilent && newReading) {
+            lastChartStamp = stamp;
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             if (chartData.labels.length >= 25) {
                 chartData.labels.shift();
-                chartData.rsrp.shift();
-                chartData.rsrq.shift();
+                CHART_METRICS.forEach(m => chartData[m.key].shift());
             }
             chartData.labels.push(timeStr);
-            chartData.rsrp.push(sig.rsrp);
-            chartData.rsrq.push(sig.rsrq);
+            CHART_METRICS.forEach(m => chartData[m.key].push(chartValue(sig[m.key])));
 
             if (chart) {
                 chart.update();
@@ -1112,9 +1166,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const iccidChanged = iccidNow !== lastIccid;
         if (iccidChanged) {
             lastIccid = iccidNow;
-            chartData.labels.length = 0;
-            chartData.rsrp.length = 0;
-            chartData.rsrq.length = 0;
+            clearChartData();
             if (chart) chart.update();
         }
 
@@ -1156,6 +1208,19 @@ document.addEventListener("DOMContentLoaded", () => {
         surveyTableBody.innerHTML = survey.results.map((row) => {
             const best = row.plmn === survey.best;
             const note = best ? (survey.selected === row.plmn ? " (best, connected)" : " (best)") : "";
+            const cellRows = (row.cells || []).map((cell) => `
+                <tr class="survey-cell">
+                    <td>${escapeHtml((cell.kind === "serving" ? "Serving cell" : "Neighbour cell")
+                        + (cell.cell_id ? ` ${cell.cell_id}` : "") + (cell.best ? " (strongest)" : ""))}</td>
+                    <td></td>
+                    <td></td>
+                    <td>${escapeHtml(surveyNumber(cell.rsrp))}</td>
+                    <td>${escapeHtml(surveyNumber(cell.rsrq))}</td>
+                    <td>${escapeHtml(surveyNumber(cell.sinr))}</td>
+                    <td>${escapeHtml(surveyNumber(cell.pci))}</td>
+                    <td>${escapeHtml(surveyNumber(cell.earfcn))}</td>
+                    <td></td>
+                </tr>`).join("");
             return `
                 <tr${best ? ' class="survey-best"' : ""}>
                     <td><strong>${escapeHtml(row.name)}</strong>${escapeHtml(note)}</td>
@@ -1167,7 +1232,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     <td>${escapeHtml(surveyNumber(row.pci))}</td>
                     <td>${escapeHtml(surveyNumber(row.earfcn))}</td>
                     <td>${escapeHtml(surveyNumber(row.seconds))}</td>
-                </tr>`;
+                </tr>${cellRows}`;
         }).join("");
     }
 
@@ -1222,12 +1287,15 @@ document.addEventListener("DOMContentLoaded", () => {
         sendRegistration({ action: "manual", plmn: button.dataset.plmn, act: parseInt(button.dataset.act, 10) || 9 });
     });
 
-    // Console Logging
+    // Console Logging. The server keeps 300 lines; the page keeps a few more.
+    const MAX_LOG_LINES = 500;
+
     function appendLog(entry) {
         const div = document.createElement("div");
         div.className = `log-line log-${String(entry.direction).toLowerCase().replace(/[^a-z]/g, "")}`;
         div.innerHTML = `<span class="timestamp">[${escapeHtml(entry.timestamp)}]</span><span class="dir">[${escapeHtml(entry.direction)}]</span> ${escapeHtml(stripDirectionPrefix(entry))}`;
         logConsole.appendChild(div);
+        while (logConsole.childElementCount > MAX_LOG_LINES) logConsole.firstElementChild.remove();
         logConsole.scrollTop = logConsole.scrollHeight;
     }
 

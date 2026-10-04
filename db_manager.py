@@ -328,7 +328,7 @@ class DBManager:
         """Signal series for charting, averaged into at most ``max_points`` buckets.
 
         The time span is split into equal buckets and each non-empty bucket is
-        returned as the mean RSRP, RSRQ and SINR with its mean ``unix_time``,
+        returned as the mean RSRP, RSRQ, SINR, RSSI and CSQ with its mean ``unix_time``,
         oldest first. Short histories come back as plain rows (bucket width 0).
 
         :param start_time: lower bound (unix seconds); defaults to the first row
@@ -360,14 +360,15 @@ class DBManager:
             width = (last - first) / max_points if count > max_points else 0
             if width <= 0:
                 rows = conn.execute(
-                    f"SELECT unix_time, rsrp, rsrq, sinr FROM signal_history WHERE {where} "
+                    f"SELECT unix_time, rsrp, rsrq, sinr, rssi, csq FROM signal_history WHERE {where} "
                     "ORDER BY unix_time", params,
                 ).fetchall()
                 return [dict(r) for r in rows]
             rows = conn.execute(
                 f"""
                 SELECT AVG(unix_time) AS unix_time, AVG(rsrp) AS rsrp,
-                       AVG(rsrq) AS rsrq, AVG(sinr) AS sinr
+                       AVG(rsrq) AS rsrq, AVG(sinr) AS sinr,
+                       AVG(rssi) AS rssi, AVG(csq) AS csq
                 FROM signal_history WHERE {where}
                 GROUP BY MIN(CAST((unix_time - ?) / ? AS INTEGER), ?)
                 ORDER BY unix_time

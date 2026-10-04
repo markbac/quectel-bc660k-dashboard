@@ -2,7 +2,8 @@
 
 The survey deregisters, scans with ``AT+COPS=?``, then for each network that is
 not forbidden registers on it, waits for the module to attach, samples the
-signal, and deregisters again. At the end it connects to the best network or
+signal of the serving cell and of every neighbour cell the module reports, and
+deregisters again. At the end it connects to the best network or
 puts back the selection the module had before. It is written against a few
 callables so it can run on a fake module in tests.
 """
@@ -45,6 +46,47 @@ def rank(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     def key(item):
         return tuple(-1e9 if item.get(f) is None else item[f] for f in ("rsrp", "sinr", "rsrq"))
     return sorted((r for r in results if r["status"] == "registered"), key=key, reverse=True)
+
+
+def merge_cells(samples: List[Any]) -> List[Dict[str, Any]]:
+    """Every cell seen in a few readings of one network, averaged per cell.
+
+    Each reading has a serving cell and, where the module reports them, neighbour
+    cells (``neighbours``: dictionaries with ``pci``, ``earfcn``, ``rsrp``, ``rsrq``).
+    A cell is identified by its PCI and EARFCN. The serving cell comes first, then
+    the neighbours strongest first, and the strongest cell of all is flagged
+    ``best``.
+    """
+    serving: Dict[tuple, Dict[str, List[Any]]] = {}
+    neighbours: Dict[tuple, Dict[str, List[Any]]] = {}
+
+    def add(table, key, **values):
+        entry = table.setdefault(key, {"rsrp": [], "rsrq": [], "sinr": [], "cell_id": []})
+        for name, value in values.items():
+            entry[name].append(value)
+
+    for cell in samples:
+        add(serving, (cell.pci, cell.earfcn), rsrp=cell.rsrp, rsrq=cell.rsrq,
+            sinr=cell.sinr, cell_id=getattr(cell, "cell_id", None))
+        for n in getattr(cell, "neighbours", None) or []:
+            add(neighbours, (n.get("pci"), n.get("earfcn")), rsrp=n.get("rsrp"), rsrq=n.get("rsrq"))
+
+    def build(kind, table):
+        rows = []
+        for (pci, earfcn), v in table.items():
+            ids = [i for i in v["cell_id"] if i]
+            rows.append({"kind": kind, "pci": pci, "earfcn": earfcn,
+                         "cell_id": ids[-1] if ids else None,
+                         "rsrp": mean(v["rsrp"]), "rsrq": mean(v["rsrq"]), "sinr": mean(v["sinr"]),
+                         "best": False})
+        return sorted(rows, key=lambda r: -1e9 if r["rsrp"] is None else -r["rsrp"])
+
+    cells = build("serving", serving) + [
+        c for c in build("neighbour", neighbours) if (c["pci"], c["earfcn"]) not in serving]
+    measured = [c for c in cells if c["rsrp"] is not None]
+    if measured:
+        max(measured, key=lambda c: c["rsrp"])["best"] = True
+    return cells
 
 
 def initial_state() -> Dict[str, Any]:
@@ -187,7 +229,7 @@ class NetworkSurvey:
         row: Dict[str, Any] = {
             "plmn": network["plmn"], "name": network["long_name"], "act": network["act"],
             "status": "timeout", "rsrp": None, "rsrq": None, "sinr": None,
-            "pci": None, "earfcn": None, "seconds": None,
+            "pci": None, "earfcn": None, "seconds": None, "cells": [],
         }
         stat = self._register(network)
         if stat in REGISTERED:
@@ -215,3 +257,4 @@ class NetworkSurvey:
             row[field] = mean([getattr(c, field) for c in cells])
         if cells:
             row["pci"], row["earfcn"] = cells[-1].pci, cells[-1].earfcn
+            row["cells"] = merge_cells(cells)
