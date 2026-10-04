@@ -18,6 +18,8 @@ DENIED = 3
 CEREG_STAT = re.compile(r"\+CEREG:\s*\d+,(\d+)")
 COPS_QUERY = re.compile(r'\+COPS:\s*(\d+)(?:,(\d+),"([^"]*)"(?:,(\d+))?)?')
 QSCLK = re.compile(r"\+QSCLK:\s*(\d)")
+QLOCKF = re.compile(r"\+QLOCKF:\s*(\d+)((?:\s*,\s*\d*)*)")
+MAX_PCI, MAX_EARFCN = 503, 262143  # BC660K-GL AT manual, AT+QLOCKF; EARFCN 0 means "remove lock"
 
 
 def restore_command(cops_reply: str) -> str:
@@ -27,6 +29,33 @@ def restore_command(cops_reply: str) -> str:
         return "AT+COPS=0"
     mode, fmt, oper, act = match.groups()
     return f'AT+COPS={mode},{fmt},"{oper}"' + (f",{act}" if act else "")
+
+
+def lock_restore_command(qlockf_reply: str) -> str:
+    """The ``AT+QLOCKF=`` command that puts back the lock in an ``AT+QLOCKF?`` reply.
+
+    No lock in the reply gives ``AT+QLOCKF=0`` (unlock).
+    """
+    match = QLOCKF.search(qlockf_reply)
+    if not match:
+        return "AT+QLOCKF=0"
+    mode = int(match.group(1))
+    values = [v.strip() for v in match.group(2).split(",") if v.strip()]
+    if mode == 1 and values:
+        return "AT+QLOCKF=1," + ",".join(values[:2])
+    if mode == 2 and values:
+        return f"AT+QLOCKF=2,,{len(values)}," + ",".join(values)
+    return "AT+QLOCKF=0"
+
+
+def lockable_cell(row: Dict[str, Any]) -> Optional[tuple]:
+    """``(earfcn, pci)`` of the strongest cell in a result row, or ``None`` if it cannot be locked to."""
+    for cell in row.get("cells") or []:
+        earfcn, pci = cell.get("earfcn"), cell.get("pci")
+        if (cell.get("best") and isinstance(earfcn, int) and isinstance(pci, int)
+                and 1 <= earfcn <= MAX_EARFCN and 0 <= pci <= MAX_PCI):
+            return earfcn, pci
+    return None
 
 
 def cereg_stat(reply: str) -> Optional[int]:
@@ -92,7 +121,7 @@ def merge_cells(samples: List[Any]) -> List[Dict[str, Any]]:
 def initial_state() -> Dict[str, Any]:
     """The survey state as shown to the web UI."""
     return {"running": False, "phase": "", "results": [], "best": None,
-            "selected": None, "error": None, "aborted": False}
+            "selected": None, "locked": None, "error": None, "aborted": False}
 
 
 class NetworkSurvey:
@@ -135,8 +164,13 @@ class NetworkSurvey:
         self.state.update(changes)
         self.publish()
 
-    def run(self, select_best: bool = True) -> Dict[str, Any]:
-        """Survey every network. Always leaves the module registered somewhere sensible."""
+    def run(self, select_best: bool = True, lock_best_cell: bool = False) -> Dict[str, Any]:
+        """Survey every network. Always leaves the module registered somewhere sensible.
+
+        :param lock_best_cell: after joining the best network, lock the module to its
+            strongest cell (``AT+QLOCKF``). If the module cannot attach to that cell the
+            previous lock is put back. Only used together with ``select_best``.
+        """
         # One update call with every key, so another thread never sees a half-built state.
         self.state.update(initial_state(), running=True, phase="Starting")
         self.publish()
@@ -179,8 +213,13 @@ class NetworkSurvey:
             if select_best and ranked and not self.aborted():
                 self._set(phase=f"Connecting to the best network: {ranked[0]['name']}")
                 if self._register(ranked[0]) in REGISTERED:
-                    self._set(selected=ranked[0]["plmn"])
                     selected = True
+                    if lock_best_cell:
+                        row = next(r for r in self.state["results"] if r["plmn"] == ranked[0]["plmn"])
+                        self._set(phase="Locking to the strongest cell")
+                        selected = self._lock_cell(ranked[0], row)
+                    if selected:
+                        self._set(selected=ranked[0]["plmn"])
         except Exception as exc:  # leave the module usable whatever went wrong
             self._set(error=f"Survey stopped: {exc}")
         finally:
@@ -202,6 +241,36 @@ class NetworkSurvey:
                 seen.add(key)
                 unique.append(network)
         return unique
+
+    def _apply_lock(self, command: str) -> bool:
+        """Run an ``AT+QLOCKF`` command, which the module only accepts with the radio off."""
+        self.send("AT+CFUN=0", 30.0)
+        try:
+            reply = self.send(command, 10.0)
+        finally:
+            self.send("AT+CFUN=1", 30.0)
+        return "ERROR" not in reply and reply != TIMEOUT_RESPONSE
+
+    def _lock_cell(self, network: Dict[str, Any], row: Dict[str, Any]) -> bool:
+        """Lock to the strongest cell of ``row``. True if the module is registered on ``network`` after."""
+        cell = lockable_cell(row)
+        if cell is None:
+            self.log("[SURVEY] No cell with a usable EARFCN and PCI to lock to; left unlocked.")
+            return True
+        earfcn, pci = cell
+        current = self.send("AT+QLOCKF?")
+        if "ERROR" in current or current == TIMEOUT_RESPONSE:
+            self.log("[SURVEY] The module does not answer AT+QLOCKF; left unlocked.")
+            return True
+        previous = lock_restore_command(current)
+        if self._apply_lock(f"AT+QLOCKF=1,{earfcn},{pci}") and self._register(network) in REGISTERED:
+            self._set(locked={"plmn": network["plmn"], "earfcn": earfcn, "pci": pci})
+            self.log(f"[SURVEY] Locked to EARFCN {earfcn}, PCI {pci}. "
+                     "Unlock with AT+CFUN=0, AT+QLOCKF=0, AT+CFUN=1.")
+            return True
+        self.log(f"[SURVEY] The module could not attach to EARFCN {earfcn}, PCI {pci}; putting the previous lock back.")
+        self._apply_lock(previous)
+        return self._register(network) in REGISTERED
 
     def _register(self, network: Dict[str, Any]) -> Optional[int]:
         """Register on ``network`` and return the final ``CEREG`` status, or ``None``."""

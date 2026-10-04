@@ -252,11 +252,15 @@ test("the survey button posts the choice and the table marks the best network (#
     h.document.getElementById("surveyBtn").click();
     await new Promise((r) => setTimeout(r, 10));
     assert.ok(h.fetches.some((u) => u.includes("/api/survey")));
-    assert.deepStrictEqual(h.lastBody, { select_best: true });
+    assert.deepStrictEqual(h.lastBody, { select_best: true, lock_best_cell: false });
     h.document.getElementById("surveySelectBest").checked = false;
     h.document.getElementById("surveyBtn").click();
     await new Promise((r) => setTimeout(r, 10));
-    assert.deepStrictEqual(h.lastBody, { select_best: false });
+    assert.deepStrictEqual(h.lastBody, { select_best: false, lock_best_cell: false });
+    h.document.getElementById("surveyLockCell").checked = true;
+    h.document.getElementById("surveyBtn").click();
+    await new Promise((r) => setTimeout(r, 10));
+    assert.deepStrictEqual(h.lastBody, { select_best: false, lock_best_cell: true });
 });
 
 test("while a survey runs the other operator controls are disabled and Stop is shown", () => {

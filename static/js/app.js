@@ -82,6 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const surveyBtn = document.getElementById("surveyBtn");
     const surveyStopBtn = document.getElementById("surveyStopBtn");
     const surveySelectBest = document.getElementById("surveySelectBest");
+    const surveyLockCell = document.getElementById("surveyLockCell");
     const surveyStatus = document.getElementById("surveyStatus");
     const surveyError = document.getElementById("surveyError");
     const surveyTableBody = document.getElementById("surveyTableBody");
@@ -1201,6 +1202,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         surveyStopBtn.classList.toggle("hidden", !survey.running);
         surveyStatus.textContent = survey.running ? survey.phase : (survey.phase && survey.results.length ? survey.phase : "");
+        if (!survey.running && survey.locked && survey.selected) {
+            surveyStatus.textContent += ` Locked to EARFCN ${survey.locked.earfcn}, PCI ${survey.locked.pci}.`;
+        }
         surveyStatus.classList.toggle("hidden", !surveyStatus.textContent);
         surveyError.textContent = survey.error || "";
         surveyError.classList.toggle("hidden", !survey.error);
@@ -1241,7 +1245,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const res = await fetch("/api/survey", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ select_best: surveySelectBest.checked }),
+                body: JSON.stringify({ select_best: surveySelectBest.checked, lock_best_cell: surveyLockCell.checked }),
             });
             if (!res.ok) {
                 const data = await res.json();

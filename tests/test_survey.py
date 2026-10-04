@@ -8,7 +8,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from at_channel import TIMEOUT_RESPONSE
-from survey import NetworkSurvey, cereg_stat, mean, rank, restore_command
+from survey import NetworkSurvey, cereg_stat, lock_restore_command, lockable_cell, mean, rank, restore_command
 
 SCAN = ('\r\n+COPS: (2,"","","23415",9),(1,"","","23410",9),(3,"","","23420",9),'
         '(1,"","","23430",9),,(0-4),(0-2)\r\n\r\nOK\r\n')
@@ -50,7 +50,7 @@ class FakeModule:
         return SimpleNamespace(rsrp=rsrp, rsrq=rsrq, sinr=sinr, pci=299, earfcn=6254, cell_id="1")
 
 
-def run_survey(module, select_best=True, aborted=lambda: False, **kw):
+def run_survey(module, select_best=True, aborted=lambda: False, lock=False, **kw):
     parse = importlib.import_module("serial_manager").SerialManager._parse_cops_scan
     published = []
     options = dict(register_wait=2, poll=1, samples=2, sample_gap=0, settle=0, sleep=lambda s: None)
@@ -65,7 +65,7 @@ def run_survey(module, select_best=True, aborted=lambda: False, **kw):
         aborted=aborted,
         **options,
     )
-    run.run(select_best)
+    run.run(select_best, lock)
     return run, published
 
 
@@ -323,3 +323,111 @@ def test_a_network_that_did_not_register_has_no_cells():
     run, _ = run_survey(module)
     denied = next(r for r in run.state["results"] if r["plmn"] == "23410")
     assert denied["status"] == "denied" and denied["cells"] == []
+
+
+class LockModule(FakeModule):
+    """A module with AT+QLOCKF. ``attach_locked`` says whether it registers while locked."""
+
+    def __init__(self, *args, lock_reply="\r\nOK\r\n", lock_write="OK", attach_locked=True, **kw):
+        super().__init__(*args, **kw)
+        self.lock_reply, self.lock_write, self.attach_locked = lock_reply, lock_write, attach_locked
+        self.locked = False
+
+    def send(self, command, timeout=None):
+        if command == "AT+QLOCKF?":
+            self.sent.append(command)
+            return self.lock_reply
+        if command.startswith("AT+QLOCKF="):
+            self.sent.append(command)
+            self.locked = command.startswith("AT+QLOCKF=1")
+            return f"\r\n{self.lock_write}\r\n"
+        if command == "AT+CEREG?" and self.locked and not self.attach_locked:
+            self.sent.append(command)
+            return "\r\n+CEREG: 4,2\r\n\r\nOK\r\n"
+        return super().send(command, timeout)
+
+
+def lock_commands(module):
+    return [c for c in module.sent if c.startswith(("AT+QLOCKF=", "AT+CFUN"))]
+
+
+def test_lock_command_is_sent_with_the_radio_off_after_joining_the_best_network():
+    module = LockModule(GOOD, SIGNAL)
+    run, _ = run_survey(module, lock=True)
+    assert lock_commands(module) == ["AT+CFUN=0", "AT+QLOCKF=1,6254,299", "AT+CFUN=1"]
+    assert module.sent.index("AT+QLOCKF=1,6254,299") > module.sent.index('AT+COPS=1,2,"23410",9')
+    assert run.state["locked"] == {"plmn": "23410", "earfcn": 6254, "pci": 299}
+    assert run.state["selected"] == "23410"
+
+
+def test_no_lock_unless_asked_to():
+    module = LockModule(GOOD, SIGNAL)
+    run, _ = run_survey(module)
+    assert lock_commands(module) == []
+    assert run.state["locked"] is None
+
+
+def test_no_lock_when_not_connecting_to_the_best_network():
+    module = LockModule(GOOD, SIGNAL)
+    run_survey(module, select_best=False, lock=True)
+    assert lock_commands(module) == []
+
+
+def test_failed_lock_puts_the_previous_lock_back_and_stays_on_the_network():
+    module = LockModule(GOOD, SIGNAL, attach_locked=False,
+                        lock_reply="\r\n+QLOCKF: 1,6300,321\r\n\r\nOK\r\n")
+    # Registration only fails while locked, so the restored lock (also mode 1) fails too:
+    module.attach_locked = False
+    run, _ = run_survey(module, lock=True)
+    assert lock_commands(module)[:3] == ["AT+CFUN=0", "AT+QLOCKF=1,6254,299", "AT+CFUN=1"]
+    assert "AT+QLOCKF=1,6300,321" in module.sent
+    assert run.state["locked"] is None
+    assert module.sent.count("AT+CFUN=0") == module.sent.count("AT+CFUN=1")
+
+
+def test_failed_lock_without_a_previous_lock_unlocks_and_registers_again():
+    module = LockModule(GOOD, SIGNAL, attach_locked=False)
+    run, _ = run_survey(module, lock=True)
+    assert "AT+QLOCKF=0" in module.sent
+    assert run.state["locked"] is None
+    assert run.state["selected"] == "23410"  # unlocked, so it registers again
+    assert module.sent.count("AT+CFUN=0") == module.sent.count("AT+CFUN=1")
+
+
+def test_a_rejected_lock_command_leaves_the_module_unlocked_and_radio_on():
+    module = LockModule(GOOD, SIGNAL, lock_write="ERROR")
+    run, _ = run_survey(module, lock=True)
+    assert run.state["locked"] is None
+    assert module.sent.count("AT+CFUN=0") == module.sent.count("AT+CFUN=1")
+    assert module.sent[-1] != "AT+CFUN=0"
+
+
+def test_a_module_without_qlockf_is_left_alone():
+    module = LockModule(GOOD, SIGNAL, lock_reply="\r\nERROR\r\n")
+    run, _ = run_survey(module, lock=True)
+    assert lock_commands(module) == []
+    assert run.state["selected"] == "23410" and run.state["locked"] is None
+
+
+def test_lock_restore_command():
+    assert lock_restore_command("\r\nOK\r\n") == "AT+QLOCKF=0"
+    assert lock_restore_command("+QLOCKF: 1,2508\r\nOK") == "AT+QLOCKF=1,2508"
+    assert lock_restore_command("+QLOCKF: 1,2508,17\r\nOK") == "AT+QLOCKF=1,2508,17"
+    assert lock_restore_command("+QLOCKF: 2,6254,6300\r\nOK") == "AT+QLOCKF=2,,2,6254,6300"
+    assert lock_restore_command("+QLOCKF: 0\r\nOK") == "AT+QLOCKF=0"
+
+
+@pytest.mark.parametrize("earfcn,pci,ok", [
+    (6254, 299, True), (6254, 0, True), (6254, 503, True), (262143, 1, True),
+    (0, 5, False),  # EARFCN 0 would remove the lock
+    (6254, 504, False), (262144, 5, False), (None, 5, False), (6254, None, False)])
+def test_lockable_cell_respects_the_manual_ranges(earfcn, pci, ok):
+    row = {"cells": [{"earfcn": earfcn, "pci": pci, "best": True}]}
+    assert (lockable_cell(row) == (earfcn, pci)) is ok
+    if not ok:
+        assert lockable_cell(row) is None
+
+
+def test_lockable_cell_needs_a_best_cell():
+    assert lockable_cell({"cells": [{"earfcn": 6254, "pci": 3, "best": False}]}) is None
+    assert lockable_cell({"cells": []}) is None

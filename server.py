@@ -115,6 +115,7 @@ class RegistrationRequest(BaseModel):
 
 class SurveyRequest(BaseModel):
     select_best: bool = True
+    lock_best_cell: bool = False
 
 class PSMRequest(BaseModel):
     enabled: bool
@@ -308,7 +309,7 @@ def start_survey(req: SurveyRequest):
     if not manager.is_connected:
         raise HTTPException(status_code=400, detail="Serial port not connected")
     try:
-        manager.start_network_survey(req.select_best)
+        manager.start_network_survey(req.select_best, req.lock_best_cell)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return {"status": "ok", "message": "Network survey started"}

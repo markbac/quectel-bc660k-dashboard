@@ -990,24 +990,25 @@ class SerialManager:
         self._notify("state", self.state)
         return resp
 
-    def start_network_survey(self, select_best: bool = True) -> None:
+    def start_network_survey(self, select_best: bool = True, lock_best_cell: bool = False) -> None:
         """Try every visible network in a background thread (see :mod:`survey`).
 
         :param select_best: connect to the best network at the end, otherwise put
             back the selection the module had before.
+        :param lock_best_cell: also lock the module to the strongest cell of that network.
         :raises RuntimeError: if a scan, registration change or survey is under way.
         """
         if self.state["is_scanning"] or self.state["survey"]["running"]:
             raise RuntimeError("A carrier scan or survey is already running.")
         self._survey_abort.clear()
         self.state["survey"]["running"] = True  # claim it before the thread starts
-        threading.Thread(target=self._survey_worker, args=(select_best,), daemon=True).start()
+        threading.Thread(target=self._survey_worker, args=(select_best, lock_best_cell), daemon=True).start()
 
     def stop_network_survey(self) -> None:
         """Ask a running survey to stop after the network it is on; it then restores the selection."""
         self._survey_abort.set()
 
-    def _survey_worker(self, select_best: bool) -> None:
+    def _survey_worker(self, select_best: bool, lock_best_cell: bool = False) -> None:
         """Run the survey on the module, or a canned one in demo mode."""
         survey = NetworkSurvey(
             send=self._survey_send,
@@ -1024,7 +1025,7 @@ class SerialManager:
         self.log("[SURVEY] Starting: the module will leave and rejoin networks, and may take 10 to 20 minutes.", "INFO")
         self._scan_in_progress = True  # the module is quiet while it changes network
         try:
-            survey.run(select_best)
+            survey.run(select_best, lock_best_cell)
         finally:
             if not self.is_demo:  # show the network the module ended up on
                 with self.lock:

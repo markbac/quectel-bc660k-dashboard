@@ -6,6 +6,7 @@
 
 - The Signal Strength Trend chart can plot RSRP, RSRQ, SINR, RSSI and CSQ, with a checkbox for each. The choice is remembered in the browser, and an axis is drawn only while a metric on it is shown. `/api/history/series` now also returns `rssi` and `csq` (#115).
 - The network survey records every cell it can see on each network (serving and neighbour cells, with PCI, EARFCN, RSRP and RSRQ), lists them under the network and marks the strongest (#128).
+- Optional "Lock to its strongest cell" for the network survey (off by default): after joining the best network the module is locked to its strongest cell with `AT+QLOCKF`, and the previous lock is put back if it cannot attach (#129).
 
 ### Fixed
 
