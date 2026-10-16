@@ -42,7 +42,7 @@ log = logging.getLogger(f"{LOGGER_NAME}.server")
 
 
 class _ManagerLogHandler(logging.Handler):
-    """Hand records to the manager's py-logkit logger.
+    """Hand records to the manager's ctxlogkit logger.
 
     The manager reconfigures its handlers when file logging is toggled, so
     forwarding each record keeps uvicorn's output on whatever handlers are
@@ -54,7 +54,7 @@ class _ManagerLogHandler(logging.Handler):
 
 
 def route_uvicorn_logs() -> None:
-    """Send uvicorn's server and access logs through py-logkit."""
+    """Send uvicorn's server and access logs through ctxlogkit."""
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         target = logging.getLogger(name)
         target.handlers = [_ManagerLogHandler()]

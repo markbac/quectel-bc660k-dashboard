@@ -79,7 +79,7 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 }
 
 # 4. Packages: install only when an import fails.
-$check = "import fastapi, uvicorn, serial, websockets, pydantic, pylogkit; pylogkit.setup_logging"
+$check = "import fastapi, uvicorn, serial, websockets, pydantic, ctxlogkit; ctxlogkit.setup_logging"
 $null = & $venvPython -c $check 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing requirements.txt ..."
@@ -87,7 +87,7 @@ if ($LASTEXITCODE -ne 0) {
     & $venvPython -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
     if ($LASTEXITCODE -ne 0) { Fail "pip could not install the requirements. Check your network connection." }
     $null = & $venvPython -c $check 2>&1
-    if ($LASTEXITCODE -ne 0) { Fail "The packages are installed but pylogkit still cannot be imported." }
+    if ($LASTEXITCODE -ne 0) { Fail "The packages are installed but ctxlogkit still cannot be imported." }
 }
 if ($WithMqtt) {
     & $venvPython -m pip install "paho-mqtt>=2.0"

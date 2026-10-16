@@ -8,6 +8,10 @@
 - The network survey records every cell it can see on each network (serving and neighbour cells, with PCI, EARFCN, RSRP and RSRQ), lists them under the network and marks the strongest (#128).
 - Optional "Lock to its strongest cell" for the network survey (off by default): after joining the best network the module is locked to its strongest cell with `AT+QLOCKF`, and the previous lock is put back if it cannot attach (#129).
 
+### Changed
+
+- Logging uses py-logkit under its new package name, `ctxlogkit` (`ctxlogkit @ git+https://github.com/markbac/py-logkit`). Run `pip install -r requirements.txt` again after updating (`run_dashboard.ps1` does this for you). The old `pylogkit` install is no longer used and can be removed with `pip uninstall pylogkit`.
+
 ### Documentation
 
 - New [command reference](docs/command-reference.md) (AT commands, timeouts, HTTP and WebSocket interface) and [Network Survey overview](docs/network-survey.md).
