@@ -1,25 +1,25 @@
-"""Explain a failed ``pylogkit`` import in terms the user can act on."""
+"""Explain a failed ``ctxlogkit`` import in terms the user can act on."""
 import importlib.util
 from typing import Optional
 
-INSTALL = 'pip install "pylogkit @ git+https://github.com/markbac/py-logkit"'
+INSTALL = 'pip install "ctxlogkit @ git+https://github.com/markbac/py-logkit"'
 
 
-def pylogkit_help(error: Optional[BaseException] = None) -> str:
-    """Return a message saying why ``pylogkit`` could not be imported and how to fix it.
+def ctxlogkit_help(error: Optional[BaseException] = None) -> str:
+    """Return a message saying why ``ctxlogkit`` could not be imported and how to fix it.
 
-    Two causes are told apart. A folder named ``pylogkit`` with no code in it
-    (what an old copy of this project leaves behind once its files are removed)
-    hides the real package, and the import then fails with "unknown location".
+    Two causes are told apart. A folder named ``ctxlogkit`` with no code in it
+    (for example an empty directory next to ``server.py``) hides the real
+    package, and the import then fails with "unknown location".
     Otherwise the package is simply not installed.
     """
-    spec = importlib.util.find_spec("pylogkit")
-    lines = ["Cannot start: the py-logkit logging package could not be imported."]
+    spec = importlib.util.find_spec("ctxlogkit")
+    lines = ["Cannot start: the ctxlogkit logging package could not be imported."]
     if spec is not None and spec.origin is None:
         folders = ", ".join(spec.submodule_search_locations or [])
         lines += [
-            f"A folder named 'pylogkit' with no code in it is hiding the package: {folders}",
-            "Delete that folder (it is left over from the old bundled copy), then run again.",
+            f"A folder named 'ctxlogkit' with no code in it is hiding the package: {folders}",
+            "Delete that folder, then run again.",
         ]
     else:
         lines += [

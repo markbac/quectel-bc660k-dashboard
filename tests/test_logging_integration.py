@@ -1,4 +1,4 @@
-"""Logging goes through the py-logkit package, not print() or a vendored copy."""
+"""Logging goes through the ctxlogkit package, not print() or a vendored copy."""
 import importlib
 import logging
 import re
@@ -21,13 +21,13 @@ def server_module(tmp_path, monkeypatch):
     module.manager.set_file_logging(False)
 
 
-def test_pylogkit_is_the_installed_package_not_a_vendored_copy():
-    assert not (ROOT / "pylogkit").exists()
-    import pylogkit
-    assert "site-packages" in pylogkit.__file__ or "dist-packages" in pylogkit.__file__
+def test_ctxlogkit_is_the_installed_package_not_a_vendored_copy():
+    assert not (ROOT / "ctxlogkit").exists()
+    import ctxlogkit
+    assert "site-packages" in ctxlogkit.__file__ or "dist-packages" in ctxlogkit.__file__
 
 
-def test_pylogkit_is_a_declared_dependency():
+def test_ctxlogkit_is_a_declared_dependency():
     for name in ("requirements.txt", "pyproject.toml"):
         assert "github.com/markbac/py-logkit" in (ROOT / name).read_text(), name
 

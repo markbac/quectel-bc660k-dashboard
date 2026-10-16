@@ -14,14 +14,14 @@ from at_channel import ATChannel, TIMEOUT_RESPONSE, timeout_for
 from db_manager import DBManager
 from drivers import DEFAULT_DRIVER, CellInfo, ModuleDriver, detect_driver
 from plmn import operator_name
-from startup_check import pylogkit_help
+from startup_check import ctxlogkit_help
 from survey import NetworkSurvey, initial_state as initial_survey_state
 from transcript import TranscriptRecorder
 
 try:
-    from pylogkit import setup_logging
+    from ctxlogkit import setup_logging
 except ImportError as exc:  # missing, or hidden by a stale folder
-    raise SystemExit(pylogkit_help(exc)) from exc
+    raise SystemExit(ctxlogkit_help(exc)) from exc
 
 __version__ = "2.0.0"
 LOGGER_NAME = "QuectelManager"
@@ -411,7 +411,7 @@ class SerialManager:
         self._notify("state", self.state)
 
     def _configure_logging(self) -> logging.Logger:
-        """Build the py-logkit logger, with or without the rotating file.
+        """Build the ctxlogkit logger, with or without the rotating file.
 
         Calling ``setup_logging`` again replaces the handlers and closes the
         old ones, so this also serves to switch the file on or off at runtime.

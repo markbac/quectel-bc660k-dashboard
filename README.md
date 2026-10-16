@@ -9,7 +9,7 @@ A modern, real-time web dashboard for inspecting signal strength, serving cell m
 ## 🌟 Key Features
 
 - 📶 **Real-Time Signal Quality Telemetry**: Monitors **RSRP** (dBm), **RSRQ** (dB), **RSSI** (dBm), **SINR** (dB), and **CSQ** (0-31 scale) with live color-coded quality badges.
-- ⚡ **Py-LogKit Integration**: Features structured, colorized, timestamped, and file-backed logging powered by [`markbac/py-logkit`](https://github.com/markbac/py-logkit), installed from GitHub by `pip install -r requirements.txt`. Server start-up, shutdown and uvicorn access logs use the same handlers. Needs Python 3.10 or later.
+- ⚡ **ctxlogkit Logging**: Features structured, colorized, timestamped, and file-backed logging powered by [ctxlogkit](https://github.com/markbac/py-logkit) (formerly `pylogkit`), installed from GitHub by `pip install -r requirements.txt`. Server start-up, shutdown and uvicorn access logs use the same handlers. Needs Python 3.10 or later.
 - 🔒 **Serial Port Lock Warning & Auto-Reclaim**: Detects if a COM port is locked by another process, emits warnings, and reclaims handles automatically. Only the previous dashboard instance is stopped: the PID file records the process start time, so a recycled PID that now belongs to another program is left alone.
 - 🏷️ **Operator Names**: the module reports its network as a numeric PLMN such as `23415`. `plmn.py` maps the codes it knows (UK, Ireland, Germany, France, the Netherlands, Finland, Sweden) to names, so Vodafone UK appears only when the module is on Vodafone UK's network. Any other code shows as `PLMN <code>`, and names the network reports itself are kept. To add a network, add its code to `OPERATORS` in `plmn.py`.
 - 🏆 **Network Survey** (smart scan): deregisters, scans, joins each allowed network in turn, averages RSRP, RSRQ and SINR, lists every cell it can see on each network (serving and neighbours, with PCI, EARFCN, RSRP and RSRQ), ranks the networks and can connect to the best one. An optional, off by default tick box then locks the module to that network's strongest cell with `AT+QLOCKF`, and puts the previous lock back if the module cannot attach. Expect 10 to 20 minutes with no connection. Your original selection is restored if the survey fails or you press Stop. See [docs/network-survey.md](docs/network-survey.md) for the procedure, the options and the limits. Written against a BC660K-GL, and a full survey has not yet been run on hardware.
@@ -49,7 +49,7 @@ cd quectel-bc660k-dashboard
 pip install -r requirements.txt
 ```
 
-This needs Python 3.10 or later and `git`, because [py-logkit](https://github.com/markbac/py-logkit) is installed from GitHub.
+This needs Python 3.10 or later and `git`, because [ctxlogkit](https://github.com/markbac/py-logkit) is installed from GitHub.
 
 On Windows, `run_dashboard.ps1` does the whole set-up and then starts the server. It checks Python and git, removes a leftover empty `pylogkit` folder from the old bundled copy, creates `.venv`, installs `requirements.txt` when a package is missing and runs `server.py` with the arguments you give it:
 
@@ -59,7 +59,7 @@ powershell -ExecutionPolicy Bypass -File .\run_dashboard.ps1 --port auto --recor
 .\run_dashboard.ps1 -WithMqtt --port COM3   # also install paho-mqtt
 ```
 
-If py-logkit is missing or hidden, the dashboard now stops with a message saying what to do instead of a traceback.
+If ctxlogkit is missing or hidden, the dashboard now stops with a message saying what to do instead of a traceback.
 
 On Python 3.13 the test suite and the checks below run in GitHub Actions (`.github/workflows/ci.yml`).
 
